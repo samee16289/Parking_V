@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SMC Parking - YOLOv8 Scan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .active-btn { border-color: #1e40af !important; background-color: #eff6ff !important; color: #1e40af !important; }
+        #sideMenu { transition: transform 0.3s ease; transform: translateX(-100%); }
+        #sideMenu.open { transform: translateX(0); }
+        .pay-btn { transition: all 0.2s; border: 2px solid #e2e8f0; }
+        .active-pay { border-color: #10b981 !important; background-color: #ecfdf5 !important; color: #065f46 !important; }
+        
+        #camOverlay { display: none; position: fixed; inset: 0; background: black; z-index: 100; flex-direction: column; align-items: center; justify-content: center; }
+        #video { width: 100%; height: 100%; object-fit: cover; }
+        
+        .scan-window { 
+            position: absolute; 
+            border: 3px solid #fbbf24; 
+            width: 85%; 
+            height: 120px; 
+            border-radius: 12px; 
+            box-shadow: 0 0 0 1000px rgba(0,0,0,0.7); 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .scan-line {
+            width: 100%;
+            height: 2px;
+            background: rgba(251, 191, 36, 0.5);
+            box-shadow: 0 0 15px #fbbf24;
+            animation: scanMove 2s infinite linear;
+        }
+        @keyframes scanMove { 0% { transform: translateY(-50px); } 100% { transform: translateY(50px); } }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans">
+    
+    <audio id="beepSound" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3"></audio>
+
+    <div class="bg-blue-800 text-white p-4 flex items-center shadow-lg">
+        <button onclick="toggleMenu()" class="text-2xl p-2"><i class="fas fa-bars"></i></button>
+        <div class="flex-1 text-center pr-8">
+            <h1 class="text-xl font-black italic uppercase">SMC Entry</h1>
+        </div>
+    </div>
+
+    <div id="sideMenu" class="fixed inset-y-0 left-0 w-64 bg-slate-900 z-50 p-6 shadow-2xl">
+        <button onclick="toggleMenu()" class="text-white text-2xl mb-8"><i class="fas fa-times"></i></button>
+        <div class="space-y-6">
+            <a href="index.html" class="block text-blue-400 font-bold uppercase tracking-wider"><i class="fas fa-plus-circle mr-2"></i> Entry Point</a>
+            <a href="admin.html" class="block text-slate-300 font-bold uppercase tracking-wider"><i class="fas fa-search mr-2"></i> Exit / Search</a>
+        </div>
+    </div>
+    <div id="overlay" onclick="toggleMenu()" class="fixed inset-0 bg-black/50 hidden z-40"></div>
+
+    <div class="max-w-md mx-auto p-4">
+        <div id="formSection" class="bg-white rounded-[2rem] shadow-xl p-6 space-y-5 border border-slate-100">
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Vehicle Number</label>
+                <div class="relative">
+                    <input id="vehNo" type="text" placeholder="GJ05XX0000" class="w-full p-4 pr-14 bg-slate-50 border-2 rounded-2xl text-2xl font-black text-center uppercase outline-none focus:border-blue-500 shadow-inner">
+                    <button onclick="openCam()" class="absolute right-3 top-1/2 -translate-y-1/2 text-blue-600 p-2 text-xl">
+                        <i class="fas fa-camera"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2">
+                <button onclick="sel('2',10,this)" class="t-btn p-4 border-2 rounded-2xl bg-slate-50 font-bold flex flex-col items-center">
+                    <span class="text-2xl">🏍️</span><span class="text-[9px] mt-1">2-WH</span>
+                </button>
+                <button onclick="sel('3',15,this)" class="t-btn p-4 border-2 rounded-2xl bg-slate-50 font-bold flex flex-col items-center">
+                    <span class="text-2xl">🛺</span><span class="text-[9px] mt-1">3-WH</span>
+                </button>
+                <button onclick="sel('4',20,this)" class="t-btn p-4 border-2 rounded-2xl bg-slate-50 font-bold flex flex-col items-center">
+                    <span class="text-2xl">🚗</span><span class="text-[9px] mt-1">4-WH</span>
+                </button>
+            </div>
+
+            <div>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Payment Method</label>
+                <div class="grid grid-cols-2 gap-3 mt-1">
+                    <button onclick="setPayMode('Cash', this)" class="pay-btn p-3 rounded-xl font-bold flex items-center justify-center gap-2 active-pay">
+                        <i class="fas fa-money-bill-wave"></i> Cash
+                    </button>
+                    <button onclick="setPayMode('Online', this)" class="pay-btn p-3 rounded-xl font-bold flex items-center justify-center gap-2">
+                        <i class="fas fa-qrcode"></i> Online
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 p-5 rounded-2xl flex justify-between items-center text-white">
+                <span id="displayTotal" class="text-3xl font-black italic text-emerald-400 w-full text-center">₹0</span>
+            </div>
+
+            <button id="submitBtn" onclick="submitEntry()" class="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl uppercase">Confirm & Print</button>
+        </div>
+
+        <div id="receipt" class="hidden bg-white rounded-[2rem] p-8 text-center shadow-2xl">
+            <h2 class="text-2xl font-black mb-2 italic">SUCCESS</h2>
+            <p id="resInfo" class="font-black text-xl mb-4"></p>
+            <div id="qrContainer" class="hidden mb-4 flex justify-center"><div id="qrcode"></div></div>
+            <button onclick="location.reload()" class="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase">Next Vehicle</button>
+        </div>
+    </div>
+
+    <div id="camOverlay">
+        <video id="video" autoplay playsinline></video>
+        <div class="scan-window">
+            <div class="scan-line"></div>
+        </div>
+        <canvas id="canvas" class="hidden"></canvas>
+        
+        <div class="absolute bottom-10 flex gap-4 w-full px-6">
+            <button onclick="closeCam()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl font-bold uppercase">Back</button>
+            <button id="snapBtn" onclick="snap()" class="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg">Scan Plate</button>
+            <button onclick="toggleFlash()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl text-xl"><i class="fas fa-bolt"></i></button>
+        </div>
+    </div>
+
+    <script>
+        const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
+        
+        // --- YOLOv8 CONFIG ---
+        // Change "localhost" to your PC's IP (e.g., 192.168.1.5) to use on a real mobile phone
+const AI_SERVER_URL = "http://192.168.241.1:5501/scan"; 
+        
+        let amt = 0, type = "", payMode = "Cash", stream = null, flash = false;
+
+        function toggleMenu() {
+            document.getElementById('sideMenu').classList.toggle('open');
+            document.getElementById('overlay').classList.toggle('hidden');
+        }
+
+        async function openCam() {
+            document.getElementById('camOverlay').style.display = 'flex';
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
+                });
+                document.getElementById('video').srcObject = stream;
+            } catch (err) { alert("Camera Error: " + err); closeCam(); }
+        }
+
+        function closeCam() {
+            if(stream) stream.getTracks().forEach(t => t.stop());
+            document.getElementById('camOverlay').style.display = 'none';
+        }
+
+        async function toggleFlash() {
+            const track = stream.getVideoTracks()[0];
+            flash = !flash;
+            try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { alert("Flash not supported"); }
+        }
+
+        // --- UPDATED YOLOv8 SCANNER (FILLS MANUALLY) ---
+        async function snap() {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            const btn = document.getElementById('snapBtn');
+            const beep = document.getElementById('beepSound');
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+
+            btn.innerText = "AI READING...";
+            btn.disabled = true;
+
+            canvas.toBlob(async (blob) => {
+                const formData = new FormData();
+                formData.append('image', blob, 'plate.jpg');
+
+                try {
+                    const response = await fetch(AI_SERVER_URL, { method: 'POST', body: formData });
+                    const result = await response.json();
+                    
+                    if(result.plate && result.plate !== "Not Found") {
+                        // AI Fills the box
+                        document.getElementById('vehNo').value = result.plate;
+                        if(beep) beep.play();
+                        // Close cam so guard can select vehicle type manually
+                        closeCam();
+                    } else {
+                        alert("AI could not see a clear plate. Try moving closer.");
+                    }
+                } catch (err) {
+                    alert("Connection Error: Make sure Python app.py is running on your PC.");
+                } finally {
+                    btn.innerText = "SCAN PLATE";
+                    btn.disabled = false;
+                }
+            }, 'image/jpeg', 0.8);
+        }
+
+        function sel(t, r, btn) {
+            type = t + "-Wheel"; amt = r;
+            document.querySelectorAll('.t-btn').forEach(b => b.classList.remove('active-btn'));
+            btn.classList.add('active-btn');
+            document.getElementById('displayTotal').innerText = "₹" + r;
+        }
+
+        function setPayMode(mode, btn) {
+            payMode = mode;
+            document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('active-pay'));
+            btn.classList.add('active-pay');
+        }
+
+        async function submitEntry() {
+            const v = document.getElementById('vehNo').value.toUpperCase().trim();
+            if(!v || !type) return alert("Vehicle No and Type required!");
+            document.getElementById('submitBtn').innerText = "SAVING...";
+            
+            await fetch(scriptURL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ vehicle: v, type: type, amount: amt, mode: payMode }) });
+            
+            document.getElementById('formSection').classList.add('hidden');
+            document.getElementById('receipt').classList.remove('hidden');
+            document.getElementById('resInfo').innerText = v;
+
+            if(payMode === 'Online') {
+                const upiLink = `upi://pay?pa=s8834774@oksbi&pn=SMC_Parking&am=${amt}&cu=INR`;
+                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(upiLink)}`;
+                document.getElementById('qrcode').innerHTML = `<img src="${qrUrl}" alt="QR">`;
+                document.getElementById('qrContainer').classList.remove('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
