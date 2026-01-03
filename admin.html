@@ -19,7 +19,9 @@
         .scan-window { 
             position: absolute; border: 3px solid #fbbf24; width: 85%; height: 120px; border-radius: 12px; 
             box-shadow: 0 0 0 1000px rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center;
+            pointer-events: none;
         }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
@@ -27,26 +29,25 @@
     <audio id="beepSound" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3"></audio>
 
     <div class="bg-slate-900 text-white p-4 flex items-center shadow-lg sticky top-0 z-30">
-        <button onclick="toggleMenu()" class="text-2xl p-2 focus:outline-none hover:text-blue-400">
+        <button onclick="toggleMenu()" class="text-2xl p-2 focus:outline-none">
             <i class="fas fa-bars"></i>
         </button>
         <div class="flex-1 text-center">
             <h1 class="text-xl font-black italic tracking-tight uppercase text-blue-400">Gate Verification</h1>
         </div>
-        <div id="syncBtn" class="text-emerald-500 text-sm">
+        <div id="syncBtn" class="text-emerald-500 text-sm p-2" onclick="loadData()">
             <i class="fas fa-sync-alt"></i>
         </div>
     </div>
 
     <div id="sideMenu" class="fixed inset-y-0 left-0 w-64 bg-slate-900 z-50 p-6 shadow-2xl">
-        <button onclick="toggleMenu()" class="text-white text-2xl mb-8 hover:text-red-400"><i class="fas fa-times"></i></button>
+        <button onclick="toggleMenu()" class="text-white text-2xl mb-8"><i class="fas fa-times"></i></button>
         <div class="space-y-6">
-            <a href="index.html" class="flex items-center gap-4 text-slate-300 hover:text-blue-400 font-black uppercase text-sm tracking-widest"><i class="fas fa-plus-circle"></i> Entry Point</a>
+            <a href="index.html" class="flex items-center gap-4 text-slate-300 font-black uppercase text-sm tracking-widest"><i class="fas fa-plus-circle"></i> Entry Point</a>
             <a href="admin.html" class="flex items-center gap-4 text-blue-400 font-black uppercase text-sm tracking-widest"><i class="fas fa-shield-check"></i> Gate Verify</a>
-            <a href="head-admin.html" class="flex items-center gap-4 text-slate-300 hover:text-blue-400 font-black uppercase text-sm tracking-widest"><i class="fas fa-chart-line"></i> Analytics</a>
         </div>
     </div>
-    <div id="menuOverlay" onclick="toggleMenu()" class="fixed inset-0 bg-black/60 hidden z-40 transition-opacity"></div>
+    <div id="menuOverlay" onclick="toggleMenu()" class="fixed inset-0 bg-black/60 hidden z-40"></div>
 
     <div class="max-w-md mx-auto p-6">
         <div class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 mb-6">
@@ -70,10 +71,15 @@
         <div class="scan-window"></div>
         <canvas id="canvas" class="hidden"></canvas>
         
-        <div class="absolute bottom-10 flex gap-4 w-full px-6">
-            <button onclick="closeCam()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl font-bold uppercase">Back</button>
-            <button id="snapBtn" onclick="snap()" class="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg">SCAN NOW</button>
-            <button onclick="toggleFlash()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl text-xl"><i class="fas fa-bolt"></i></button>
+        <div class="absolute bottom-10 flex flex-col items-center gap-4 w-full px-6">
+            <div id="scanStatus" class="bg-black/80 text-white px-6 py-3 rounded-2xl hidden flex items-center gap-3">
+                <div class="loader"></div> <span id="statusText">Processing...</span>
+            </div>
+            <div class="flex gap-4 w-full">
+                <button onclick="closeCam()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl font-bold uppercase">Back</button>
+                <button id="snapBtn" onclick="snap()" class="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg">Scan Now</button>
+                <button onclick="toggleFlash()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl text-xl"><i class="fas fa-bolt"></i></button>
+            </div>
         </div>
     </div>
 
@@ -90,11 +96,12 @@
             document.getElementById('menuOverlay').classList.toggle('hidden');
         }
 
+        // 1. OPEN CAMERA (High Res)
         async function openCam() {
             document.getElementById('camOverlay').style.display = 'flex';
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment", width: { ideal: 1280 } } 
+                    video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
                 });
                 document.getElementById('video').srcObject = stream;
             } catch (err) { alert("Camera Access Denied"); closeCam(); }
@@ -103,50 +110,64 @@
         function closeCam() {
             if(stream) stream.getTracks().forEach(t => t.stop());
             document.getElementById('camOverlay').style.display = 'none';
+            document.getElementById('scanStatus').classList.add('hidden');
+            document.getElementById('video').play(); 
         }
 
         async function toggleFlash() {
             const track = stream.getVideoTracks()[0];
             flash = !flash;
-            try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { alert("Flash not supported"); }
+            try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { }
         }
 
+        // 2. SNAP PHOTO & PROCESS (No Video Lag)
         async function snap() {
             const video = document.getElementById('video');
             const canvas = document.getElementById('canvas');
             const btn = document.getElementById('snapBtn');
+            const status = document.getElementById('scanStatus');
+            const statusText = document.getElementById('statusText');
             const beep = document.getElementById('beepSound');
 
-            // 1. CAPTURE PHOTO
+            // A. Take Photo
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             canvas.getContext('2d').drawImage(video, 0, 0);
             
-            btn.innerText = "AI READING...";
+            // B. Freeze for processing
+            video.pause(); 
+            
             btn.disabled = true;
+            status.classList.remove('hidden');
+            statusText.innerText = "Verifying Plate...";
 
             try {
-                // 2. AI READ PHOTO (Tesseract)
+                // C. OCR Reading
                 const result = await Tesseract.recognize(canvas, 'eng');
-                const cleanPlate = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+                let rawText = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+                
+                // Smart regex for Indian Plates (10 chars)
+                const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{10}/) || rawText.match(/[A-Z0-9]{4,}/);
 
-                if(cleanPlate.length >= 4) {
-                    // 3. ENTER MANUALLY INTO SEARCH BOX
-                    document.getElementById('searchInput').value = cleanPlate;
+                if(match) {
+                    document.getElementById('searchInput').value = match[0];
                     if(beep) beep.play(); 
                     closeCam();
-                    searchVeh(); // Trigger database search
+                    searchVeh(); // Auto-trigger database lookup
                 } else {
-                    alert("Could not read clearly. Point the camera closer to the plate and click SCAN again.");
+                    alert("Plate not detected. Get closer and click SCAN again.");
+                    video.play();
                 }
             } catch (err) {
-                alert("AI Error: " + err);
+                alert("AI Error. Please resume and try again.");
+                video.play();
             } finally {
-                btn.innerText = "SCAN NOW";
                 btn.disabled = false;
+                status.classList.add('hidden');
             }
         }
 
+        // 3. DATABASE SYNC & SEARCH
         async function loadData() {
             if (isSyncing) return;
             isSyncing = true;
@@ -156,6 +177,7 @@
             try {
                 const res = await fetch(scriptURL + '?nocache=' + new Date().getTime());
                 allData = await res.json();
+                console.log("Database Synced");
                 if(document.getElementById('searchInput').value.length >= 3) {
                     searchVeh();
                 }
@@ -181,6 +203,7 @@
                 return;
             }
 
+            // Find exact match
             const vehicleRecords = allData.filter(item => item.vehicle.toString().toUpperCase() === val);
             
             if (vehicleRecords.length === 0) {
@@ -193,26 +216,28 @@
 
             const latestEntry = vehicleRecords[vehicleRecords.length - 1];
             const latestEntryTime = new Date(latestEntry.time).getTime();
+            
+            // Check Local Logs for Exit status
             const clearedHistory = JSON.parse(localStorage.getItem('smc_exit_logs') || "{}");
             const lastClearedTime = clearedHistory[val] || 0;
 
             if (latestEntryTime > lastClearedTime) {
                 resultsDiv.innerHTML = `
                 <div class="bg-emerald-50 border-2 border-emerald-200 p-8 rounded-[2.5rem] text-center shadow-lg">
-                    <div class="w-20 h-20 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-200"><i class="fas fa-check text-3xl"></i></div>
+                    <div class="w-20 h-20 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-check text-3xl"></i></div>
                     <h2 class="text-emerald-900 font-black text-2xl uppercase italic">VALID ENTRY</h2>
                     <div class="my-5 bg-white p-5 rounded-3xl border border-emerald-100">
                         <p class="text-3xl font-black text-slate-800 tracking-tight">${latestEntry.vehicle}</p>
-                        <p class="text-[10px] font-bold text-slate-400 uppercase mt-2 italic">Paid ₹${latestEntry.amount}</p>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase mt-2 italic">Type: ${latestEntry.type || 'N/A'} | Paid: ₹${latestEntry.amount}</p>
                     </div>
-                    <button onclick="confirmExit('${latestEntry.vehicle}', ${latestEntryTime})" class="w-full bg-slate-900 text-white font-black py-5 rounded-2xl uppercase tracking-widest active:scale-95 transition-all shadow-xl">VERIFY & EXIT</button>
+                    <button onclick="confirmExit('${latestEntry.vehicle}', ${latestEntryTime})" class="w-full bg-slate-900 text-white font-black py-5 rounded-2xl uppercase tracking-widest shadow-xl">VERIFY & EXIT</button>
                 </div>`;
             } else {
                 resultsDiv.innerHTML = `
                 <div class="bg-orange-50 border-2 border-orange-200 p-10 rounded-[2.5rem] text-center">
                     <i class="fas fa-door-open text-orange-400 text-4xl mb-4"></i>
                     <h2 class="text-orange-900 font-black text-xl uppercase">ALREADY LEFT</h2>
-                    <p class="text-orange-600/60 text-[10px] font-bold mt-2 uppercase italic tracking-tighter">This payment has been used.</p>
+                    <p class="text-orange-600/60 text-[10px] font-bold mt-2 uppercase italic tracking-tighter">This vehicle has already exited the premises.</p>
                 </div>`;
             }
         }
@@ -226,8 +251,9 @@
             searchVeh();
         }
 
+        // Initial Data Load
         loadData();
-        setInterval(loadData, 20000); 
+        setInterval(loadData, 30000); 
     </script>
 </body>
 </html>

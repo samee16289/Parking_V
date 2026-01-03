@@ -5,7 +5,7 @@ let stream = null;
 let flash = false;
 
 // --- AI INITIALIZATION ---
-console.log("SMC Smart AI Scanner System Ready");
+console.log("SMC Smart AI Scanner: Photo-Capture Mode Active");
 
 // --- PARKING LOGIC ---
 
@@ -19,7 +19,7 @@ function updatePrice() {
 }
 
 function processParking() {
-    const vehicle = document.getElementById('vehNo').value.toUpperCase(); 
+    const vehicle = document.getElementById('vehNo').value.toUpperCase().trim(); 
     const duration = document.getElementById('duration').value;
     const amount = document.getElementById('priceLabel').innerText;
 
@@ -28,19 +28,18 @@ function processParking() {
         return;
     }
 
-    document.getElementById('payBtn').innerText = "Processing...";
-    document.getElementById('payBtn').disabled = true;
+    const payBtn = document.getElementById('payBtn');
+    payBtn.innerText = "Processing...";
+    payBtn.disabled = true;
 
     setTimeout(() => {
         let expiry = new Date();
         expiry.setHours(expiry.getHours() + parseInt(duration));
 
-        // 1. Show Receipt UI
         document.getElementById('receipt').classList.remove('hidden');
         document.getElementById('recVehicle').innerText = vehicle;
         document.getElementById('recTime').innerText = expiry.toLocaleTimeString();
 
-        // 2. Add Optional Print & Done Buttons
         const receiptDiv = document.getElementById('receipt');
         if (!document.getElementById('printGroup')) {
             const btnGroup = document.createElement('div');
@@ -48,20 +47,19 @@ function processParking() {
             btnGroup.className = "mt-4 space-y-3";
             btnGroup.innerHTML = `
                 <button onclick="printThermalBill('${vehicle}', '${expiry.toLocaleTimeString()}', '${amount}')" 
-                    class="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all">
-                    <i class="fas fa-print"></i> Print Bill (Optional)
+                    class="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg flex items-center justify-center gap-2">
+                    <i class="fas fa-print"></i> Print Bill
                 </button>
                 <button onclick="location.reload()" 
-                    class="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase active:scale-95 transition-all">
-                    Done / Next Vehicle
+                    class="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase">
+                    Next Vehicle
                 </button>
             `;
             receiptDiv.appendChild(btnGroup);
         }
 
-        document.getElementById('payBtn').innerText = "PAID & SAVED";
+        payBtn.innerText = "PAID & SAVED";
         
-        // 3. Save to Google Sheets
         fetch(scriptURL, {
             method: 'POST',
             mode: 'no-cors',
@@ -71,11 +69,10 @@ function processParking() {
                 amount: amount 
             })
         });
-
-    }, 1500);
+    }, 1000);
 }
 
-// --- MOBILE THERMAL PRINT ENGINE ---
+// --- THERMAL PRINT ENGINE ---
 function printThermalBill(veh, exp, amt) {
     const printWindow = window.open('', '_blank');
     const date = new Date().toLocaleDateString();
@@ -84,25 +81,21 @@ function printThermalBill(veh, exp, amt) {
         <html>
             <head><title>Print Receipt</title></head>
             <style>
-                body { font-family: monospace; width: 58mm; text-align: center; padding: 0; margin: 0; }
-                .header { font-weight: bold; font-size: 1.2em; margin-top: 10px; }
+                body { font-family: monospace; width: 58mm; text-align: center; padding: 10px; margin: 0; }
+                .header { font-weight: bold; font-size: 1.2em; }
                 .divider { border-top: 1px dashed black; margin: 5px 0; }
                 .big { font-size: 1.5em; font-weight: bold; margin: 5px 0; }
-                @media print { margin: 0; }
             </style>
             <body>
                 <div class="header">SMC PARKING</div>
-                <div style="font-size: 0.8em;">SURAT MUNICIPAL CORP</div>
                 <div class="divider"></div>
-                <div style="font-size: 0.8em;">DATE: ${date}</div>
-                <div style="margin-top:5px;">VEHICLE NO:</div>
+                <div>DATE: ${date}</div>
+                <div style="margin-top:5px;">VEHICLE:</div>
                 <div class="big">${veh}</div>
                 <div>VALID UNTIL:</div>
                 <div class="big">${exp}</div>
                 <div class="divider"></div>
-                <div class="header">TOTAL PAID: ${amt}</div>
-                <div class="divider"></div>
-                <div style="font-size: 0.8em; margin-bottom: 20px;">Keep receipt for exit scan.<br>Drive Safely!</div>
+                <div class="header">TOTAL: ${amt}</div>
             </body>
         </html>
     `);
@@ -114,18 +107,18 @@ function printThermalBill(veh, exp, amt) {
     }, 500);
 }
 
-// --- HIGH-SPEED CAMERA FUNCTIONS ---
+// --- PHOTO-BASED CAMERA FUNCTIONS ---
 
 async function openCam() {
     const overlay = document.getElementById('camOverlay');
     overlay.style.display = 'flex';
     try {
         stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
+            video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
         });
         document.getElementById('video').srcObject = stream;
     } catch (err) { 
-        alert("Camera Error: Check Permissions"); 
+        alert("Camera Error: Please check permissions."); 
         closeCam(); 
     }
 }
@@ -148,30 +141,28 @@ async function snap() {
     const btn = document.getElementById('snapBtn');
     const ctx = canvas.getContext('2d');
 
+    // 1. CLICK PHOTO: Capture the single highest quality frame
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
     
-    btn.innerText = "AI THINKING...";
+    // 2. STOP VIDEO SYSTEM: Freeze everything to process only the photo
+    video.pause(); 
+    
+    btn.innerText = "READING PHOTO...";
     btn.disabled = true;
 
     try {
-        // AI Text Recognition
+        // 3. READ PHOTO: AI processes the frozen image
         const result = await Tesseract.recognize(canvas, 'eng');
         
-        // Extract alphanumeric only
+        // Clean text: keep only Alphanumeric
         let rawText = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
         
-        // Look for 10 character pattern (Standard Indian Plate)
-        let cleanPlate = "";
-        const match = rawText.match(/[A-Z0-9]{10}/);
+        // Filter for standard 10-character plate pattern
+        const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{10}/);
         
-        if(match) {
-            cleanPlate = match[0];
-        } else {
-            // Fallback: Use first 10 chars if match not found but text exists
-            cleanPlate = rawText.substring(0, 10);
-        }
+        let cleanPlate = match ? match[0] : rawText.substring(0, 10);
 
         if(cleanPlate.length >= 4) {
             document.getElementById('vehNo').value = cleanPlate;
@@ -179,10 +170,12 @@ async function snap() {
             if(beep) beep.play();
             closeCam();
         } else {
-            alert("Could not read plate clearly. Move closer.");
+            alert("Reading Failed. The photo was too dark or blurry. Please try again.");
+            video.play(); // Resume live view for a better photo
         }
     } catch (err) {
-        alert("AI Processing Error. Please enter manually.");
+        alert("Scan Error. Please try again.");
+        video.play();
     } finally {
         btn.innerText = "SCAN NOW";
         btn.disabled = false;

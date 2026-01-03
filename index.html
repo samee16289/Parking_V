@@ -17,6 +17,7 @@
         #camOverlay { display: none; position: fixed; inset: 0; background: black; z-index: 100; flex-direction: column; align-items: center; justify-content: center; }
         #video { width: 100%; height: 100%; object-fit: cover; }
         
+        /* Specific scan window size for Indian Plates */
         .scan-window { 
             position: absolute; 
             border: 3px solid #fbbf24; 
@@ -27,10 +28,10 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            pointer-events: none;
         }
 
-        /* Loading Spinner */
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
         @media print {
@@ -126,25 +127,24 @@
         </div>
     </div>
 
-    <div id="printReceiptArea" class="hidden"></div>
-
     <div id="camOverlay">
         <video id="video" autoplay playsinline></video>
-        <div class="scan-window">
-             </div>
+        <div class="scan-window"></div>
         <canvas id="canvas" class="hidden"></canvas>
         
         <div class="absolute bottom-10 flex flex-col gap-4 w-full px-6 items-center">
-            <div id="scanStatus" class="text-white bg-black/50 px-4 py-2 rounded-full mb-2 hidden">
-                <div class="loader"></div> <span id="statusText">Processing...</span>
+            <div id="scanStatus" class="text-white bg-black/70 px-6 py-3 rounded-2xl mb-2 hidden flex items-center gap-3">
+                <div class="loader"></div> <span id="statusText">Processing Photo...</span>
             </div>
             <div class="flex gap-4 w-full">
                 <button onclick="closeCam()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl font-bold uppercase">Back</button>
-                <button id="snapBtn" onclick="snap()" class="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg">Scan Plate</button>
+                <button id="snapBtn" onclick="snap()" class="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg">Click Photo</button>
                 <button onclick="toggleFlash()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl text-xl"><i class="fas fa-bolt"></i></button>
             </div>
         </div>
     </div>
+
+    <div id="printReceiptArea" class="hidden"></div>
 
     <script>
         const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
@@ -156,28 +156,32 @@
             document.getElementById('overlay').classList.toggle('hidden');
         }
 
+        // 1. Photo-Based Camera Startup
         async function openCam() {
             document.getElementById('camOverlay').style.display = 'flex';
             try {
+                // High resolution for clear photos
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
+                    video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
                 });
                 document.getElementById('video').srcObject = stream;
-            } catch (err) { alert("Camera Error: " + err); closeCam(); }
+            } catch (err) { alert("Camera Error: Check Permissions"); closeCam(); }
         }
 
         function closeCam() {
             if(stream) stream.getTracks().forEach(t => t.stop());
             document.getElementById('camOverlay').style.display = 'none';
             document.getElementById('scanStatus').classList.add('hidden');
+            document.getElementById('video').play(); // Ensure video is playing for next use
         }
 
         async function toggleFlash() {
             const track = stream.getVideoTracks()[0];
             flash = !flash;
-            try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { alert("Flash not supported on this device"); }
+            try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { }
         }
 
+        // 2. Optimized Snap (Photo Only System)
         async function snap() {
             const video = document.getElementById('video');
             const canvas = document.getElementById('canvas');
@@ -186,33 +190,42 @@
             const statusText = document.getElementById('statusText');
             const beep = document.getElementById('beepSound');
             
-            // 1. Capture the image from video stream
+            // A. CAPTURE THE PHOTO IMMEDIATELY
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             canvas.getContext('2d').drawImage(video, 0, 0);
 
-            // 2. UI Feedback
+            // B. FREEZE THE VIDEO (Important: No more video noise)
+            video.pause();
+
+            // C. UI FEEDBACK
             btn.disabled = true;
             status.classList.remove('hidden');
             statusText.innerText = "Reading Number Plate...";
 
             try {
-                // 3. AI Text Recognition (OCR)
+                // D. AI ANALYSIS OF THE STATIC PHOTO
                 const result = await Tesseract.recognize(canvas, 'eng');
                 
-                // 4. Clean the text (Keep only letters and numbers)
-                let cleanPlate = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+                // Keep only letters and numbers
+                let rawText = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
                 
-                // Typical Indian Number Plates have 7-10 characters
+                // Smart Filter: Look for common Indian plate patterns (e.g., GJ05...)
+                const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{4,10}/);
+                
+                let cleanPlate = match ? match[0] : "";
+
                 if(cleanPlate.length >= 4) {
                     document.getElementById('vehNo').value = cleanPlate;
                     if(beep) beep.play();
                     closeCam();
                 } else {
-                    alert("Plate not clear. Please hold steady and try again.");
+                    alert("Plate not clear in photo. Please unfreeze and click again.");
+                    video.play(); // Allow user to try another photo
                 }
             } catch (err) {
-                alert("Scan Error: " + err);
+                alert("Scan Error. Resume video and try again.");
+                video.play();
             } finally {
                 btn.disabled = false;
                 status.classList.add('hidden');
