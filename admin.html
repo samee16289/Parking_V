@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SMC Parking - Smart Verify</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         #sideMenu { transition: transform 0.3s ease-in-out; transform: translateX(-100%); }
@@ -12,15 +13,13 @@
         .sync-active { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-        /* WIDE SCANNER UI */
+        /* CAMERA UI */
         #camOverlay { display: none; position: fixed; inset: 0; background: black; z-index: 100; flex-direction: column; align-items: center; justify-content: center; }
         #video { width: 100%; height: 100%; object-fit: cover; }
         .scan-window { 
             position: absolute; border: 3px solid #fbbf24; width: 85%; height: 120px; border-radius: 12px; 
             box-shadow: 0 0 0 1000px rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center;
         }
-        .scan-line { width: 100%; height: 2px; background: rgba(251, 191, 36, 0.5); box-shadow: 0 0 15px #fbbf24; animation: scanMove 2s infinite linear; }
-        @keyframes scanMove { 0% { transform: translateY(-50px); } 100% { transform: translateY(50px); } }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
@@ -68,9 +67,7 @@
 
     <div id="camOverlay">
         <video id="video" autoplay playsinline></video>
-        <div class="scan-window">
-            <div class="scan-line"></div>
-        </div>
+        <div class="scan-window"></div>
         <canvas id="canvas" class="hidden"></canvas>
         
         <div class="absolute bottom-10 flex gap-4 w-full px-6">
@@ -82,7 +79,6 @@
 
     <script>
         const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
-const AI_SERVER_URL = "http://192.168.241.1:5501/scan"; 
 
         let allData = [];
         let isSyncing = false;
@@ -94,7 +90,6 @@ const AI_SERVER_URL = "http://192.168.241.1:5501/scan";
             document.getElementById('menuOverlay').classList.toggle('hidden');
         }
 
-        // --- CAMERA LOGIC ---
         async function openCam() {
             document.getElementById('camOverlay').style.display = 'flex';
             try {
@@ -116,46 +111,42 @@ const AI_SERVER_URL = "http://192.168.241.1:5501/scan";
             try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { alert("Flash not supported"); }
         }
 
-        // --- YOLOv8 INTEGRATION ---
         async function snap() {
             const video = document.getElementById('video');
             const canvas = document.getElementById('canvas');
             const btn = document.getElementById('snapBtn');
             const beep = document.getElementById('beepSound');
 
+            // 1. CAPTURE PHOTO
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             canvas.getContext('2d').drawImage(video, 0, 0);
             
-            btn.innerText = "YOLOv8 READING...";
+            btn.innerText = "AI READING...";
             btn.disabled = true;
 
-            canvas.toBlob(async (blob) => {
-                const formData = new FormData();
-                formData.append('image', blob, 'plate.jpg');
+            try {
+                // 2. AI READ PHOTO (Tesseract)
+                const result = await Tesseract.recognize(canvas, 'eng');
+                const cleanPlate = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
 
-                try {
-                    const response = await fetch(AI_SERVER_URL, { method: 'POST', body: formData });
-                    const result = await response.json();
-                    
-                    if(result.plate && result.plate !== "Not Found") {
-                        document.getElementById('searchInput').value = result.plate;
-                        if(beep) beep.play(); 
-                        closeCam();
-                        searchVeh(); // Trigger search immediately after YOLO detection
-                    } else {
-                        alert("AI could not find plate. Move closer.");
-                    }
-                } catch (err) {
-                    alert("AI Server Error: Is your Python app.py running?");
-                } finally {
-                    btn.innerText = "SCAN NOW";
-                    btn.disabled = false;
+                if(cleanPlate.length >= 4) {
+                    // 3. ENTER MANUALLY INTO SEARCH BOX
+                    document.getElementById('searchInput').value = cleanPlate;
+                    if(beep) beep.play(); 
+                    closeCam();
+                    searchVeh(); // Trigger database search
+                } else {
+                    alert("Could not read clearly. Point the camera closer to the plate and click SCAN again.");
                 }
-            }, 'image/jpeg', 0.8);
+            } catch (err) {
+                alert("AI Error: " + err);
+            } finally {
+                btn.innerText = "SCAN NOW";
+                btn.disabled = false;
+            }
         }
 
-        // --- DATA FETCH LOGIC ---
         async function loadData() {
             if (isSyncing) return;
             isSyncing = true;
@@ -186,7 +177,7 @@ const AI_SERVER_URL = "http://192.168.241.1:5501/scan";
             }
 
             if (allData.length === 0) {
-                resultsDiv.innerHTML = '<p class="text-center text-orange-500 font-bold mt-10 text-[10px] uppercase tracking-widest animate-pulse">Syncing Database... Please wait</p>';
+                resultsDiv.innerHTML = '<p class="text-center text-orange-500 font-bold mt-10 text-[10px] uppercase tracking-widest animate-pulse">Syncing Database...</p>';
                 return;
             }
 

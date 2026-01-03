@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SMC Parking - YOLOv8 Scan</title>
+    <title>SMC Parking - Smart Scan</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         .active-btn { border-color: #1e40af !important; background-color: #eff6ff !important; color: #1e40af !important; }
@@ -27,14 +28,10 @@
             align-items: center;
             justify-content: center;
         }
-        .scan-line {
-            width: 100%;
-            height: 2px;
-            background: rgba(251, 191, 36, 0.5);
-            box-shadow: 0 0 15px #fbbf24;
-            animation: scanMove 2s infinite linear;
-        }
-        @keyframes scanMove { 0% { transform: translateY(-50px); } 100% { transform: translateY(50px); } }
+
+        /* Loading Spinner */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
         @media print {
             body * { visibility: hidden; }
@@ -69,7 +66,7 @@
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Vehicle Number</label>
                 <div class="relative">
                     <input id="vehNo" type="text" placeholder="GJ05XX0000" class="w-full p-4 pr-14 bg-slate-50 border-2 rounded-2xl text-2xl font-black text-center uppercase outline-none focus:border-blue-500 shadow-inner">
-                    <button onclick="openCam()" class="absolute right-3 top-1/2 -translate-y-1/2 text-blue-600 p-2 text-xl">
+                    <button onclick="openCam()" class="absolute right-3 top-1/2 -translate-y-1/2 text-blue-600 p-2 text-xl active:scale-90 transition-transform">
                         <i class="fas fa-camera"></i>
                     </button>
                 </div>
@@ -134,20 +131,23 @@
     <div id="camOverlay">
         <video id="video" autoplay playsinline></video>
         <div class="scan-window">
-            <div class="scan-line"></div>
-        </div>
+             </div>
         <canvas id="canvas" class="hidden"></canvas>
         
-        <div class="absolute bottom-10 flex gap-4 w-full px-6">
-            <button onclick="closeCam()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl font-bold uppercase">Back</button>
-            <button id="snapBtn" onclick="snap()" class="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg">Scan Plate</button>
-            <button onclick="toggleFlash()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl text-xl"><i class="fas fa-bolt"></i></button>
+        <div class="absolute bottom-10 flex flex-col gap-4 w-full px-6 items-center">
+            <div id="scanStatus" class="text-white bg-black/50 px-4 py-2 rounded-full mb-2 hidden">
+                <div class="loader"></div> <span id="statusText">Processing...</span>
+            </div>
+            <div class="flex gap-4 w-full">
+                <button onclick="closeCam()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl font-bold uppercase">Back</button>
+                <button id="snapBtn" onclick="snap()" class="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg">Scan Plate</button>
+                <button onclick="toggleFlash()" class="flex-1 bg-white/20 backdrop-blur text-white py-4 rounded-2xl text-xl"><i class="fas fa-bolt"></i></button>
+            </div>
         </div>
     </div>
 
     <script>
         const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
-        const AI_SERVER_URL = "http://192.168.241.1:5501/scan"; 
         
         let amt = 0, type = "", payMode = "Cash", stream = null, flash = false;
 
@@ -169,49 +169,54 @@
         function closeCam() {
             if(stream) stream.getTracks().forEach(t => t.stop());
             document.getElementById('camOverlay').style.display = 'none';
+            document.getElementById('scanStatus').classList.add('hidden');
         }
 
         async function toggleFlash() {
             const track = stream.getVideoTracks()[0];
             flash = !flash;
-            try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { alert("Flash not supported"); }
+            try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { alert("Flash not supported on this device"); }
         }
 
         async function snap() {
             const video = document.getElementById('video');
             const canvas = document.getElementById('canvas');
             const btn = document.getElementById('snapBtn');
+            const status = document.getElementById('scanStatus');
+            const statusText = document.getElementById('statusText');
             const beep = document.getElementById('beepSound');
             
+            // 1. Capture the image from video stream
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             canvas.getContext('2d').drawImage(video, 0, 0);
 
-            btn.innerText = "AI READING...";
+            // 2. UI Feedback
             btn.disabled = true;
+            status.classList.remove('hidden');
+            statusText.innerText = "Reading Number Plate...";
 
-            canvas.toBlob(async (blob) => {
-                const formData = new FormData();
-                formData.append('image', blob, 'plate.jpg');
-
-                try {
-                    const response = await fetch(AI_SERVER_URL, { method: 'POST', body: formData });
-                    const result = await response.json();
-                    
-                    if(result.plate && result.plate !== "Not Found") {
-                        document.getElementById('vehNo').value = result.plate;
-                        if(beep) beep.play();
-                        closeCam();
-                    } else {
-                        alert("AI could not see a clear plate. Try moving closer.");
-                    }
-                } catch (err) {
-                    alert("Connection Error: Make sure Python server.py is running on your PC.");
-                } finally {
-                    btn.innerText = "SCAN PLATE";
-                    btn.disabled = false;
+            try {
+                // 3. AI Text Recognition (OCR)
+                const result = await Tesseract.recognize(canvas, 'eng');
+                
+                // 4. Clean the text (Keep only letters and numbers)
+                let cleanPlate = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+                
+                // Typical Indian Number Plates have 7-10 characters
+                if(cleanPlate.length >= 4) {
+                    document.getElementById('vehNo').value = cleanPlate;
+                    if(beep) beep.play();
+                    closeCam();
+                } else {
+                    alert("Plate not clear. Please hold steady and try again.");
                 }
-            }, 'image/jpeg', 0.8);
+            } catch (err) {
+                alert("Scan Error: " + err);
+            } finally {
+                btn.disabled = false;
+                status.classList.add('hidden');
+            }
         }
 
         function sel(t, r, btn) {
@@ -255,20 +260,15 @@
             printArea.innerHTML = `
                 <div style="font-family: monospace; width: 58mm; text-align: center; border: 1px solid #000; padding: 10px;">
                     <h2 style="margin:0; font-size:16px;">SMC PARKING</h2>
-                    <p style="margin:0; font-size:10px;">SURAT MUNICIPAL CORP</p>
                     <hr style="border-top: 1px dashed #000;">
-                    <p style="margin:5px 0; font-size:12px;">DATE: ${date}</p>
-                    <p style="margin:0; font-size:12px;">VEHICLE NO:</p>
+                    <p style="margin:5px 0;">DATE: ${date}</p>
                     <h1 style="margin:5px 0; font-size:22px;">${veh}</h1>
-                    <p style="margin:0; font-size:12px;">TYPE: ${type}</p>
+                    <p style="margin:5px 0;">TYPE: ${type}</p>
                     <hr style="border-top: 1px dashed #000;">
                     <h2 style="margin:5px 0;">TOTAL: ₹${amt}</h2>
-                    <p style="margin:0; font-size:10px;">PAID VIA: ${payMode}</p>
-                    <hr style="border-top: 1px dashed #000;">
-                    <p style="margin:10px 0; font-size:10px;">Keep receipt for exit.<br>Thank You!</p>
+                    <p style="margin:5px 0;">PAID: ${payMode}</p>
                 </div>
             `;
-            
             window.print();
         }
     </script>
