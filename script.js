@@ -1,12 +1,11 @@
 // --- CONFIGURATION ---
 const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
-const AI_SERVER_URL = "http://192.168.241.1:5501/scan"; 
 
 let stream = null;
 let flash = false;
 
 // --- AI INITIALIZATION ---
-console.log("SMC YOLOv8 Scanner System Ready");
+console.log("SMC Smart AI Scanner System Ready");
 
 // --- PARKING LOGIC ---
 
@@ -43,7 +42,6 @@ function processParking() {
 
         // 2. Add Optional Print & Done Buttons
         const receiptDiv = document.getElementById('receipt');
-        // We check if buttons already exist to prevent duplicates
         if (!document.getElementById('printGroup')) {
             const btnGroup = document.createElement('div');
             btnGroup.id = "printGroup";
@@ -154,33 +152,39 @@ async function snap() {
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
     
-    btn.innerText = "YOLOv8 THINKING...";
+    btn.innerText = "AI THINKING...";
     btn.disabled = true;
 
-    canvas.toBlob(async (blob) => {
-        const formData = new FormData();
-        formData.append('image', blob, 'plate.jpg');
-
-        try {
-            const response = await fetch(AI_SERVER_URL, {
-                method: 'POST',
-                body: formData
-            });
-            const result = await response.json();
-            
-            if(result.plate && result.plate !== "Not Found") {
-                document.getElementById('vehNo').value = result.plate;
-                const beep = document.getElementById('beepSound');
-                if(beep) beep.play();
-                closeCam();
-            } else {
-                alert("YOLOv8 could not find the plate. Move closer.");
-            }
-        } catch (err) {
-            alert("Connection Error: Make sure Python server.py is running on your PC.");
-        } finally {
-            btn.innerText = "SCAN NOW";
-            btn.disabled = false;
+    try {
+        // AI Text Recognition
+        const result = await Tesseract.recognize(canvas, 'eng');
+        
+        // Extract alphanumeric only
+        let rawText = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+        
+        // Look for 10 character pattern (Standard Indian Plate)
+        let cleanPlate = "";
+        const match = rawText.match(/[A-Z0-9]{10}/);
+        
+        if(match) {
+            cleanPlate = match[0];
+        } else {
+            // Fallback: Use first 10 chars if match not found but text exists
+            cleanPlate = rawText.substring(0, 10);
         }
-    }, 'image/jpeg', 0.9); 
+
+        if(cleanPlate.length >= 4) {
+            document.getElementById('vehNo').value = cleanPlate;
+            const beep = document.getElementById('beepSound');
+            if(beep) beep.play();
+            closeCam();
+        } else {
+            alert("Could not read plate clearly. Move closer.");
+        }
+    } catch (err) {
+        alert("AI Processing Error. Please enter manually.");
+    } finally {
+        btn.innerText = "SCAN NOW";
+        btn.disabled = false;
+    }
 }
