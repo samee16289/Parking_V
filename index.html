@@ -35,6 +35,12 @@
             animation: scanMove 2s infinite linear;
         }
         @keyframes scanMove { 0% { transform: translateY(-50px); } 100% { transform: translateY(50px); } }
+        
+        @media print {
+            body * { visibility: hidden; }
+            #printReceiptArea, #printReceiptArea * { visibility: visible; }
+            #printReceiptArea { position: absolute; left: 0; top: 0; width: 58mm; }
+        }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen font-sans">
@@ -69,15 +75,18 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-3 gap-2">
+            <div class="grid grid-cols-2 gap-2">
                 <button onclick="sel('2',10,this)" class="t-btn p-4 border-2 rounded-2xl bg-slate-50 font-bold flex flex-col items-center">
-                    <span class="text-2xl">🏍️</span><span class="text-[9px] mt-1">2-WH</span>
+                    <span class="text-2xl">🏍️</span><span class="text-[9px] mt-1 uppercase">2-Wheeler (₹10)</span>
                 </button>
-                <button onclick="sel('3',15,this)" class="t-btn p-4 border-2 rounded-2xl bg-slate-50 font-bold flex flex-col items-center">
-                    <span class="text-2xl">🛺</span><span class="text-[9px] mt-1">3-WH</span>
+                <button onclick="sel('3',40,this)" class="t-btn p-4 border-2 rounded-2xl bg-slate-50 font-bold flex flex-col items-center">
+                    <span class="text-2xl">🛺</span><span class="text-[9px] mt-1 uppercase">3-Wheeler (₹40)</span>
                 </button>
-                <button onclick="sel('4',20,this)" class="t-btn p-4 border-2 rounded-2xl bg-slate-50 font-bold flex flex-col items-center">
-                    <span class="text-2xl">🚗</span><span class="text-[9px] mt-1">4-WH</span>
+                <button onclick="sel('4',50,this)" class="t-btn p-4 border-2 rounded-2xl bg-slate-50 font-bold flex flex-col items-center">
+                    <span class="text-2xl">🚗</span><span class="text-[9px] mt-1 uppercase">4-Wheeler (₹50)</span>
+                </button>
+                <button onclick="sel('Truck',100,this)" class="t-btn p-4 border-2 rounded-2xl bg-slate-50 font-bold flex flex-col items-center">
+                    <span class="text-2xl">🚚</span><span class="text-[9px] mt-1 uppercase">Truck/Eicher (₹100)</span>
                 </button>
             </div>
 
@@ -97,16 +106,30 @@
                 <span id="displayTotal" class="text-3xl font-black italic text-emerald-400 w-full text-center">₹0</span>
             </div>
 
-            <button id="submitBtn" onclick="submitEntry()" class="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl uppercase">Confirm & Print</button>
+            <button id="submitBtn" onclick="submitEntry()" class="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl uppercase">Confirm & Save</button>
         </div>
 
         <div id="receipt" class="hidden bg-white rounded-[2rem] p-8 text-center shadow-2xl">
-            <h2 class="text-2xl font-black mb-2 italic">SUCCESS</h2>
-            <p id="resInfo" class="font-black text-xl mb-4"></p>
-            <div id="qrContainer" class="hidden mb-4 flex justify-center"><div id="qrcode"></div></div>
-            <button onclick="location.reload()" class="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase">Next Vehicle</button>
+            <div class="w-20 h-20 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-200">
+                <i class="fas fa-check text-3xl"></i>
+            </div>
+            <h2 class="text-2xl font-black mb-2 italic text-emerald-600">SUCCESSFULLY SAVED</h2>
+            <p id="resInfo" class="font-black text-3xl mb-4 tracking-tighter text-slate-800"></p>
+            
+            <div id="qrContainer" class="hidden mb-6 flex justify-center p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                <div id="qrcode"></div>
+            </div>
+
+            <div class="space-y-3">
+                <button onclick="printBill()" class="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase flex items-center justify-center gap-2 shadow-lg">
+                    <i class="fas fa-print"></i> Print Receipt
+                </button>
+                <button onclick="location.reload()" class="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase">Next Vehicle</button>
+            </div>
         </div>
     </div>
+
+    <div id="printReceiptArea" class="hidden"></div>
 
     <div id="camOverlay">
         <video id="video" autoplay playsinline></video>
@@ -124,10 +147,7 @@
 
     <script>
         const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
-        
-        // --- YOLOv8 CONFIG ---
-        // Change "localhost" to your PC's IP (e.g., 192.168.1.5) to use on a real mobile phone
-const AI_SERVER_URL = "http://192.168.241.1:5501/scan"; 
+        const AI_SERVER_URL = "http://192.168.241.1:5501/scan"; 
         
         let amt = 0, type = "", payMode = "Cash", stream = null, flash = false;
 
@@ -157,7 +177,6 @@ const AI_SERVER_URL = "http://192.168.241.1:5501/scan";
             try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { alert("Flash not supported"); }
         }
 
-        // --- UPDATED YOLOv8 SCANNER (FILLS MANUALLY) ---
         async function snap() {
             const video = document.getElementById('video');
             const canvas = document.getElementById('canvas');
@@ -180,16 +199,14 @@ const AI_SERVER_URL = "http://192.168.241.1:5501/scan";
                     const result = await response.json();
                     
                     if(result.plate && result.plate !== "Not Found") {
-                        // AI Fills the box
                         document.getElementById('vehNo').value = result.plate;
                         if(beep) beep.play();
-                        // Close cam so guard can select vehicle type manually
                         closeCam();
                     } else {
                         alert("AI could not see a clear plate. Try moving closer.");
                     }
                 } catch (err) {
-                    alert("Connection Error: Make sure Python app.py is running on your PC.");
+                    alert("Connection Error: Make sure Python server.py is running on your PC.");
                 } finally {
                     btn.innerText = "SCAN PLATE";
                     btn.disabled = false;
@@ -198,7 +215,8 @@ const AI_SERVER_URL = "http://192.168.241.1:5501/scan";
         }
 
         function sel(t, r, btn) {
-            type = t + "-Wheel"; amt = r;
+            type = (t === 'Truck') ? "Truck/Eicher" : t + "-Wheel"; 
+            amt = r;
             document.querySelectorAll('.t-btn').forEach(b => b.classList.remove('active-btn'));
             btn.classList.add('active-btn');
             document.getElementById('displayTotal').innerText = "₹" + r;
@@ -227,6 +245,31 @@ const AI_SERVER_URL = "http://192.168.241.1:5501/scan";
                 document.getElementById('qrcode').innerHTML = `<img src="${qrUrl}" alt="QR">`;
                 document.getElementById('qrContainer').classList.remove('hidden');
             }
+        }
+
+        function printBill() {
+            const veh = document.getElementById('vehNo').value.toUpperCase();
+            const date = new Date().toLocaleString();
+            const printArea = document.getElementById('printReceiptArea');
+            
+            printArea.innerHTML = `
+                <div style="font-family: monospace; width: 58mm; text-align: center; border: 1px solid #000; padding: 10px;">
+                    <h2 style="margin:0; font-size:16px;">SMC PARKING</h2>
+                    <p style="margin:0; font-size:10px;">SURAT MUNICIPAL CORP</p>
+                    <hr style="border-top: 1px dashed #000;">
+                    <p style="margin:5px 0; font-size:12px;">DATE: ${date}</p>
+                    <p style="margin:0; font-size:12px;">VEHICLE NO:</p>
+                    <h1 style="margin:5px 0; font-size:22px;">${veh}</h1>
+                    <p style="margin:0; font-size:12px;">TYPE: ${type}</p>
+                    <hr style="border-top: 1px dashed #000;">
+                    <h2 style="margin:5px 0;">TOTAL: ₹${amt}</h2>
+                    <p style="margin:0; font-size:10px;">PAID VIA: ${payMode}</p>
+                    <hr style="border-top: 1px dashed #000;">
+                    <p style="margin:10px 0; font-size:10px;">Keep receipt for exit.<br>Thank You!</p>
+                </div>
+            `;
+            
+            window.print();
         }
     </script>
 </body>

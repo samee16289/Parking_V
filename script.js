@@ -1,15 +1,14 @@
 // --- CONFIGURATION ---
 const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
-// REPLACE with your PC's IP address (e.g., http://192.168.1.5:5000/scan)
 const AI_SERVER_URL = "http://192.168.241.1:5501/scan"; 
 
 let stream = null;
 let flash = false;
 
-// --- AI INITIALIZATION (Updated for YOLOv8) ---
+// --- AI INITIALIZATION ---
 console.log("SMC YOLOv8 Scanner System Ready");
 
-// --- PARKING LOGIC (NO CHANGES) ---
+// --- PARKING LOGIC ---
 
 function updatePrice() {
     const duration = document.getElementById('duration').value;
@@ -21,11 +20,12 @@ function updatePrice() {
 }
 
 function processParking() {
-    const vehicle = document.getElementById('vehNo').value; 
+    const vehicle = document.getElementById('vehNo').value.toUpperCase(); 
     const duration = document.getElementById('duration').value;
+    const amount = document.getElementById('priceLabel').innerText;
 
     if (vehicle.length < 4) {
-        alert("Please enter a valid Surat Vehicle Number");
+        alert("Please enter a valid Vehicle Number");
         return;
     }
 
@@ -36,37 +36,94 @@ function processParking() {
         let expiry = new Date();
         expiry.setHours(expiry.getHours() + parseInt(duration));
 
+        // 1. Show Receipt UI
         document.getElementById('receipt').classList.remove('hidden');
-        document.getElementById('recVehicle').innerText = vehicle.toUpperCase();
+        document.getElementById('recVehicle').innerText = vehicle;
         document.getElementById('recTime').innerText = expiry.toLocaleTimeString();
+
+        // 2. Add Optional Print & Done Buttons
+        const receiptDiv = document.getElementById('receipt');
+        // We check if buttons already exist to prevent duplicates
+        if (!document.getElementById('printGroup')) {
+            const btnGroup = document.createElement('div');
+            btnGroup.id = "printGroup";
+            btnGroup.className = "mt-4 space-y-3";
+            btnGroup.innerHTML = `
+                <button onclick="printThermalBill('${vehicle}', '${expiry.toLocaleTimeString()}', '${amount}')" 
+                    class="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all">
+                    <i class="fas fa-print"></i> Print Bill (Optional)
+                </button>
+                <button onclick="location.reload()" 
+                    class="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase active:scale-95 transition-all">
+                    Done / Next Vehicle
+                </button>
+            `;
+            receiptDiv.appendChild(btnGroup);
+        }
+
         document.getElementById('payBtn').innerText = "PAID & SAVED";
         
+        // 3. Save to Google Sheets
         fetch(scriptURL, {
             method: 'POST',
             mode: 'no-cors',
             body: JSON.stringify({ 
-                vehicle: vehicle.toUpperCase(), 
+                vehicle: vehicle, 
                 expiry: expiry.toISOString(),
-                amount: document.getElementById('priceLabel').innerText 
+                amount: amount 
             })
         });
 
-        alert("Parking ticket generated for " + vehicle);
     }, 1500);
 }
 
-// --- HIGH-SPEED CAMERA & SCANNER FUNCTIONS ---
+// --- MOBILE THERMAL PRINT ENGINE ---
+function printThermalBill(veh, exp, amt) {
+    const printWindow = window.open('', '_blank');
+    const date = new Date().toLocaleDateString();
+    
+    printWindow.document.write(`
+        <html>
+            <head><title>Print Receipt</title></head>
+            <style>
+                body { font-family: monospace; width: 58mm; text-align: center; padding: 0; margin: 0; }
+                .header { font-weight: bold; font-size: 1.2em; margin-top: 10px; }
+                .divider { border-top: 1px dashed black; margin: 5px 0; }
+                .big { font-size: 1.5em; font-weight: bold; margin: 5px 0; }
+                @media print { margin: 0; }
+            </style>
+            <body>
+                <div class="header">SMC PARKING</div>
+                <div style="font-size: 0.8em;">SURAT MUNICIPAL CORP</div>
+                <div class="divider"></div>
+                <div style="font-size: 0.8em;">DATE: ${date}</div>
+                <div style="margin-top:5px;">VEHICLE NO:</div>
+                <div class="big">${veh}</div>
+                <div>VALID UNTIL:</div>
+                <div class="big">${exp}</div>
+                <div class="divider"></div>
+                <div class="header">TOTAL PAID: ${amt}</div>
+                <div class="divider"></div>
+                <div style="font-size: 0.8em; margin-bottom: 20px;">Keep receipt for exit scan.<br>Drive Safely!</div>
+            </body>
+        </html>
+    `);
+    
+    printWindow.document.close();
+    setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+    }, 500);
+}
+
+// --- HIGH-SPEED CAMERA FUNCTIONS ---
 
 async function openCam() {
     const overlay = document.getElementById('camOverlay');
     overlay.style.display = 'flex';
     try {
         stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { 
-                facingMode: "environment", 
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            } 
+            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         document.getElementById('video').srcObject = stream;
     } catch (err) { 
@@ -87,15 +144,12 @@ async function toggleFlash() {
     try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) {}
 }
 
-// --- UPDATED SNAP FUNCTION (NOW USES YOLOV8) ---
-
 async function snap() {
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const btn = document.getElementById('snapBtn');
     const ctx = canvas.getContext('2d');
 
-    // 1. Capture full resolution for the AI to see clearly
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
@@ -103,7 +157,6 @@ async function snap() {
     btn.innerText = "YOLOv8 THINKING...";
     btn.disabled = true;
 
-    // 2. Convert to Blob and send to your Python Server
     canvas.toBlob(async (blob) => {
         const formData = new FormData();
         formData.append('image', blob, 'plate.jpg');
@@ -115,21 +168,16 @@ async function snap() {
             });
             const result = await response.json();
             
-            // 3. Process result from YOLOv8
             if(result.plate && result.plate !== "Not Found") {
-                // Only updates the input box for manual confirmation
                 document.getElementById('vehNo').value = result.plate;
-                
                 const beep = document.getElementById('beepSound');
                 if(beep) beep.play();
-                
                 closeCam();
             } else {
                 alert("YOLOv8 could not find the plate. Move closer.");
             }
         } catch (err) {
-            console.error(err);
-            alert("Connection Error: Make sure Python app.py is running on your PC.");
+            alert("Connection Error: Make sure Python server.py is running on your PC.");
         } finally {
             btn.innerText = "SCAN NOW";
             btn.disabled = false;
