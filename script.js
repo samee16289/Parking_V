@@ -1,13 +1,12 @@
 // --- CONFIGURATION ---
 const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
-// UPDATED TO GEMINI API
-const GEMINI_API_KEY = 'AIzaSyCAy6nPEJYUIpZMQlr71RRh2p6I8Jd4QVg'; 
+const OCR_SPACE_KEY = 'K82387542888957'; // Your OCR.space API Key
 
 let stream = null;
 let flash = false;
 
 // --- AI INITIALIZATION ---
-console.log("SMC Smart AI Scanner: Gemini AI Vision Mode Active");
+console.log("SMC Smart AI Scanner: OCR.space Cloud Mode Active");
 
 // --- PARKING LOGIC ---
 
@@ -64,7 +63,7 @@ function processParking() {
         
         fetch(scriptURL, {
             method: 'POST',
-            幕mode: 'no-cors',
+            mode: 'no-cors',
             body: JSON.stringify({ 
                 vehicle: vehicle, 
                 expiry: expiry.toISOString(),
@@ -91,7 +90,7 @@ function printThermalBill(veh, exp, amt) {
             <body>
                 <div class="header">SMC PARKING</div>
                 <div class="divider"></div>
-                <div style="font-size:0.8em">DATE: ${date}</div>
+                <div>DATE: ${date}</div>
                 <div style="margin-top:5px;">VEHICLE:</div>
                 <div class="big">${veh}</div>
                 <div>VALID UNTIL:</div>
@@ -116,7 +115,7 @@ async function openCam() {
     overlay.style.display = 'flex';
     try {
         stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
+            video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
         });
         document.getElementById('video').srcObject = stream;
     } catch (err) { 
@@ -144,7 +143,7 @@ async function snap() {
     const ctx = canvas.getContext('2d');
     const beep = document.getElementById('beepSound');
 
-    // --- CROP LOGIC ---
+    // --- CROP LOGIC: FOCUS ONLY ON THE YELLOW BOX AREA ---
     const scanWindow = document.querySelector('.scan-window');
     const rect = scanWindow.getBoundingClientRect();
     const videoRect = video.getBoundingClientRect();
@@ -159,54 +158,66 @@ async function snap() {
 
     canvas.width = cropWidth;
     canvas.height = cropHeight;
+
     ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
     
     video.pause(); 
-    btn.innerText = "AI THINKING...";
+    btn.innerText = "AI FILTERING...";
     btn.disabled = true;
 
-    // Convert to Base64 for Gemini
-    const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+    const base64Image = canvas.toDataURL('image/jpeg', 0.8);
 
-    // Gemini API Request
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-
-    const requestBody = {
-        contents: [{
-            parts: [
-                { text: "Read the Indian license plate in this image. VERY IMPORTANT: Do not include the vertical 'IND' text or any symbols. Return ONLY the alphanumeric registration number (e.g., GJ05XX1234)." },
-                { inline_data: { mime_type: "image/jpeg", data: base64Image } }
-            ]
-        }]
-    };
+    const formData = new FormData();
+    formData.append("base64Image", base64Image);
+    formData.append("apikey", OCR_SPACE_KEY);
+    formData.append("language", "eng");
+    formData.append("OCREngine", "2"); 
 
     try {
-        const response = await fetch(url, {
+        const response = await fetch("https://api.ocr.space/parse/image", {
             method: 'POST',
-            body: JSON.stringify(requestBody)
+            body: formData
         });
-        const data = await response.json();
-        
-        if (data.candidates && data.candidates[0].content) {
-            let resultText = data.candidates[0].content.parts[0].text.replace(/\s/g, "").toUpperCase();
-            
-            // Final safety filter to remove non-alphanumeric noise
-            const cleanPlate = resultText.replace(/[^A-Z0-9]/g, "");
+        const result = await response.json();
 
-            if (cleanPlate.length >= 6) {
-                document.getElementById('vehNo').value = cleanPlate;
+        if (result.ParsedResults && result.ParsedResults.length > 0) {
+            let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
+            
+            // 1. SPECIFICALLY REMOVE "IND" if it exists at the start (Blue Tag)
+            if (rawText.startsWith("IND")) {
+                rawText = rawText.substring(3);
+            }
+
+            // 2. Updated Pattern (allows 1 or 2 digit districts like GJ5 or GJ05)
+            const platePattern = /[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}/;
+            const match = rawText.match(platePattern);
+
+            if (match) {
+                document.getElementById('vehNo').value = match[0];
                 if(beep) beep.play();
                 closeCam();
             } else {
-                alert("Plate not clear. Try again.");
-                video.play();
+                // FALLBACK: Clean text and remove "IND" if present in fallback
+                let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
+                if (cleaned.startsWith("IND")) {
+                    cleaned = cleaned.substring(3);
+                }
+
+                if(cleaned.length >= 8) {
+                    document.getElementById('vehNo').value = cleaned.substring(0, 10);
+                    if(beep) beep.play();
+                    closeCam();
+                } else {
+                    alert("Plate not recognized. Align it inside the YELLOW BOX.");
+                    video.play();
+                }
             }
         } else {
-            alert("AI could not read the image. Check lighting.");
+            alert("No text detected. Ensure lighting is good.");
             video.play();
         }
     } catch (err) {
-        alert("Gemini AI Error. Check internet/API key.");
+        alert("Cloud AI Error. Check your internet connection.");
         video.play();
     } finally {
         btn.innerText = "SCAN NOW";
