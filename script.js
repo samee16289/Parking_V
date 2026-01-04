@@ -189,7 +189,7 @@ async function snap() {
             }
 
             // 2. Updated Pattern (allows 1 or 2 digit districts like GJ5 or GJ05)
-            const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
+            const platePattern = /[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}/;
             const match = rawText.match(platePattern);
 
             if (match) {
