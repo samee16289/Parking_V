@@ -1,11 +1,12 @@
 // --- CONFIGURATION ---
 const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
+const OCR_SPACE_KEY = 'K82387542888957'; // Your OCR.space API Key
 
 let stream = null;
 let flash = false;
 
 // --- AI INITIALIZATION ---
-console.log("SMC Smart AI Scanner: Photo-Capture Mode Active");
+console.log("SMC Smart AI Scanner: OCR.space Cloud Mode Active");
 
 // --- PARKING LOGIC ---
 
@@ -141,40 +142,58 @@ async function snap() {
     const btn = document.getElementById('snapBtn');
     const ctx = canvas.getContext('2d');
 
-    // 1. CLICK PHOTO: Capture the single highest quality frame
+    // 1. CAPTURE: Take high-quality frame
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
     
-    // 2. STOP VIDEO SYSTEM: Freeze everything to process only the photo
+    // 2. FREEZE: Stop live feed to save processing power
     video.pause(); 
     
-    btn.innerText = "READING PHOTO...";
+    btn.innerText = "SENDING TO CLOUD...";
     btn.disabled = true;
 
-    try {
-        // 3. READ PHOTO: AI processes the frozen image
-        const result = await Tesseract.recognize(canvas, 'eng');
-        
-        // Clean text: keep only Alphanumeric
-        let rawText = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-        
-        // Filter for standard 10-character plate pattern
-        const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{10}/);
-        
-        let cleanPlate = match ? match[0] : rawText.substring(0, 10);
+    // 3. PREPARE: Convert image for API
+    const base64Image = canvas.toDataURL('image/jpeg', 0.8);
 
-        if(cleanPlate.length >= 4) {
-            document.getElementById('vehNo').value = cleanPlate;
-            const beep = document.getElementById('beepSound');
-            if(beep) beep.play();
-            closeCam();
+    const formData = new FormData();
+    formData.append("base64Image", base64Image);
+    formData.append("apikey", OCR_SPACE_KEY);
+    formData.append("language", "eng");
+    formData.append("OCREngine", "2"); // Optimized for numbers/plates
+
+    try {
+        // 4. API CALL
+        const response = await fetch("https://api.ocr.space/parse/image", {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+
+        if (result.ParsedResults && result.ParsedResults.length > 0) {
+            // Clean text: keep only Alphanumeric
+            let rawText = result.ParsedResults[0].ParsedText.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+            
+            // Filter for standard plate pattern (e.g., GJ05AY7151)
+            const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{10}/);
+            
+            let cleanPlate = match ? match[0] : (rawText.length >= 4 ? rawText.substring(0, 10) : "");
+
+            if(cleanPlate.length >= 4) {
+                document.getElementById('vehNo').value = cleanPlate;
+                const beep = document.getElementById('beepSound');
+                if(beep) beep.play();
+                closeCam();
+            } else {
+                alert("Reading Failed. Captured: " + rawText + ". Please try again.");
+                video.play();
+            }
         } else {
-            alert("Reading Failed. The photo was too dark or blurry. Please try again.");
-            video.play(); // Resume live view for a better photo
+            alert("No text detected. Ensure lighting is good.");
+            video.play();
         }
     } catch (err) {
-        alert("Scan Error. Please try again.");
+        alert("Cloud AI Error. Check your internet connection.");
         video.play();
     } finally {
         btn.innerText = "SCAN NOW";

@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SMC Parking - Smart Scan</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         .active-btn { border-color: #1e40af !important; background-color: #eff6ff !important; color: #1e40af !important; }
@@ -148,6 +147,7 @@
 
     <script>
         const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
+        const OCR_KEY = 'K82387542888957';
         
         let amt = 0, type = "", payMode = "Cash", stream = null, flash = false;
 
@@ -156,11 +156,9 @@
             document.getElementById('overlay').classList.toggle('hidden');
         }
 
-        // 1. Photo-Based Camera Startup
         async function openCam() {
             document.getElementById('camOverlay').style.display = 'flex';
             try {
-                // High resolution for clear photos
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
                 });
@@ -172,7 +170,6 @@
             if(stream) stream.getTracks().forEach(t => t.stop());
             document.getElementById('camOverlay').style.display = 'none';
             document.getElementById('scanStatus').classList.add('hidden');
-            document.getElementById('video').play(); // Ensure video is playing for next use
         }
 
         async function toggleFlash() {
@@ -181,7 +178,6 @@
             try { await track.applyConstraints({ advanced: [{ torch: flash }] }); } catch(e) { }
         }
 
-        // 2. Optimized Snap (Photo Only System)
         async function snap() {
             const video = document.getElementById('video');
             const canvas = document.getElementById('canvas');
@@ -190,41 +186,48 @@
             const statusText = document.getElementById('statusText');
             const beep = document.getElementById('beepSound');
             
-            // A. CAPTURE THE PHOTO IMMEDIATELY
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             canvas.getContext('2d').drawImage(video, 0, 0);
 
-            // B. FREEZE THE VIDEO (Important: No more video noise)
             video.pause();
 
-            // C. UI FEEDBACK
             btn.disabled = true;
             status.classList.remove('hidden');
-            statusText.innerText = "Reading Number Plate...";
+            statusText.innerText = "Consulting Cloud AI...";
+
+            const base64Image = canvas.toDataURL('image/jpeg', 0.8);
+            const formData = new FormData();
+            formData.append("base64Image", base64Image);
+            formData.append("apikey", OCR_KEY);
+            formData.append("OCREngine", "2");
 
             try {
-                // D. AI ANALYSIS OF THE STATIC PHOTO
-                const result = await Tesseract.recognize(canvas, 'eng');
+                const response = await fetch("https://api.ocr.space/parse/image", {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
                 
-                // Keep only letters and numbers
-                let rawText = result.data.text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-                
-                // Smart Filter: Look for common Indian plate patterns (e.g., GJ05...)
-                const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{4,10}/);
-                
-                let cleanPlate = match ? match[0] : "";
+                if (result.ParsedResults && result.ParsedResults.length > 0) {
+                    let rawText = result.ParsedResults[0].ParsedText.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+                    const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{4,10}/);
+                    let cleanPlate = match ? match[0] : "";
 
-                if(cleanPlate.length >= 4) {
-                    document.getElementById('vehNo').value = cleanPlate;
-                    if(beep) beep.play();
-                    closeCam();
+                    if(cleanPlate.length >= 4) {
+                        document.getElementById('vehNo').value = cleanPlate;
+                        if(beep) beep.play();
+                        closeCam();
+                    } else {
+                        alert("Not clear. Captured: " + rawText + ". Try again.");
+                        video.play();
+                    }
                 } else {
-                    alert("Plate not clear in photo. Please unfreeze and click again.");
-                    video.play(); // Allow user to try another photo
+                    alert("No text detected. Try again.");
+                    video.play();
                 }
             } catch (err) {
-                alert("Scan Error. Resume video and try again.");
+                alert("Cloud Connection Error.");
                 video.play();
             } finally {
                 btn.disabled = false;
