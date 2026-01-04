@@ -185,10 +185,24 @@
             const status = document.getElementById('scanStatus');
             const statusText = document.getElementById('statusText');
             const beep = document.getElementById('beepSound');
-            
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
+            const ctx = canvas.getContext('2d');
+
+            // --- CROP LOGIC ---
+            const scanWindow = document.querySelector('.scan-window');
+            const rect = scanWindow.getBoundingClientRect();
+            const videoRect = video.getBoundingClientRect();
+
+            const scaleX = video.videoWidth / videoRect.width;
+            const scaleY = video.videoHeight / videoRect.height;
+
+            const cropX = (rect.left - videoRect.left) * scaleX;
+            const cropY = (rect.top - videoRect.top) * scaleY;
+            const cropWidth = rect.width * scaleX;
+            const cropHeight = rect.height * scaleY;
+
+            canvas.width = cropWidth;
+            canvas.height = cropHeight;
+            ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
             video.pause();
             btn.disabled = true;
@@ -209,10 +223,7 @@
                 const result = await response.json();
                 
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
-                    // Normalize text: Join fragments and uppercase
                     let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
-                    
-                    // Strict Indian Plate Pattern: StateCode(2) DistCode(1-2) Letters(1-2) Number(4)
                     const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
                     const match = rawText.match(platePattern);
 
@@ -221,7 +232,6 @@
                         if(beep) beep.play();
                         closeCam();
                     } else {
-                        // Fallback: Use longest valid alphanumeric chunk, ignoring small labels like "IND"
                         let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
                         if(cleaned.length >= 8) {
                             document.getElementById('vehNo').value = cleaned.substring(0, 10);

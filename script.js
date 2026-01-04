@@ -141,13 +141,30 @@ async function snap() {
     const canvas = document.getElementById('canvas');
     const btn = document.getElementById('snapBtn');
     const ctx = canvas.getContext('2d');
+    const beep = document.getElementById('beepSound');
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
+    // --- CROP LOGIC: FOCUS ONLY ON THE YELLOW BOX AREA ---
+    const scanWindow = document.querySelector('.scan-window');
+    const rect = scanWindow.getBoundingClientRect();
+    const videoRect = video.getBoundingClientRect();
+
+    // Map screen display coordinates to actual video resolution
+    const scaleX = video.videoWidth / videoRect.width;
+    const scaleY = video.videoHeight / videoRect.height;
+
+    const cropX = (rect.left - videoRect.left) * scaleX;
+    const cropY = (rect.top - videoRect.top) * scaleY;
+    const cropWidth = rect.width * scaleX;
+    const cropHeight = rect.height * scaleY;
+
+    // Set canvas size to the size of the crop area
+    canvas.width = cropWidth;
+    canvas.height = cropHeight;
+
+    // Extract only the yellow box area from the video feed
+    ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
     
     video.pause(); 
-    
     btn.innerText = "AI FILTERING...";
     btn.disabled = true;
 
@@ -167,28 +184,25 @@ async function snap() {
         const result = await response.json();
 
         if (result.ParsedResults && result.ParsedResults.length > 0) {
-            // Remove all spaces and special characters to handle fragmented text
             let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
             
-            // --- UPDATED SMART FILTER ENGINE ---
             // Pattern for standard Indian Plates (e.g., GJ05TU8271)
-            // Expects: 2 Letters + 2 Digits + 1-2 Letters + 4 Digits
             const platePattern = /[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}/;
             const match = rawText.match(platePattern);
 
             if (match) {
                 document.getElementById('vehNo').value = match[0];
-                const beep = document.getElementById('beepSound');
                 if(beep) beep.play();
                 closeCam();
             } else {
-                // FALLBACK: Filter out small text like "IND" by requiring length >= 8
+                // FALLBACK: Required length to ignore small text like "IND"
                 let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
                 if(cleaned.length >= 8) {
                     document.getElementById('vehNo').value = cleaned.substring(0, 10);
+                    if(beep) beep.play();
                     closeCam();
                 } else {
-                    alert("Plate not recognized. Please focus on the central white area of the plate.");
+                    alert("Plate not recognized. Align it inside the YELLOW BOX.");
                     video.play();
                 }
             }
