@@ -165,19 +165,22 @@
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
                     let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
                     
-                    // Remove IND prefix if detected
+                    // --- THE FIX: Remove IND prefix if detected ---
                     if (rawText.startsWith("IND")) rawText = rawText.substring(3);
 
-                    // Pattern to match Indian Plates (handles 1 or 2 digit district code)
-                    const platePattern = /[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}/;
+                    // --- THE PATTERN: Match 2L-2N-2L-4N structure ---
+                    const platePattern = /([A-Z]{2})([0-9]{1,2})([A-Z]{1,2})([0-9]{4})/;
                     const match = rawText.match(platePattern);
 
                     if(match) {
-                        document.getElementById('searchInput').value = match[0];
+                        // Reconstruct to clean format (e.g., GJ05BK1234)
+                        let cleanPlate = match[1] + match[2] + match[3] + match[4];
+                        document.getElementById('searchInput').value = cleanPlate;
                         if(beep) beep.play(); 
                         closeCam();
                         searchVeh(); 
                     } else {
+                        // Fallback cleaning
                         let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
                         if (cleaned.startsWith("IND")) cleaned = cleaned.substring(3);
                         
@@ -211,7 +214,6 @@
             syncIcon.classList.add('sync-active');
 
             try {
-                // Fetching from Google Sheets
                 const res = await fetch(scriptURL + '?nocache=' + new Date().getTime());
                 allData = await res.json();
                 if(document.getElementById('searchInput').value.length >= 3) {
@@ -256,7 +258,6 @@
             const latestEntry = vehicleRecords[vehicleRecords.length - 1];
             const latestEntryTime = new Date(latestEntry.time).getTime();
             
-            // Check Local Storage for Exit Logs to prevent double exits
             const clearedHistory = JSON.parse(localStorage.getItem('smc_exit_logs') || "{}");
             const lastClearedTime = clearedHistory[val] || 0;
 
@@ -290,15 +291,12 @@
             clearedHistory[vehNo] = entryTime;
             localStorage.setItem('smc_exit_logs', JSON.stringify(clearedHistory));
             
-            // Visual feedback
             alert("EXIT GRANTED FOR " + vehNo);
             document.getElementById('searchInput').value = "";
             searchVeh();
         }
 
-        // Initialize
         loadData();
-        // Auto-sync data every 30 seconds
         setInterval(loadData, 30000); 
     </script>
 </body>

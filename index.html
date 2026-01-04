@@ -224,22 +224,23 @@
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
                     let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
                     
-                    // --- NEW: REMOVE "IND" FROM BLUE TAG AREA ---
+                    // --- REMOVE "IND" IF DETECTED ---
                     if (rawText.startsWith("IND")) {
                         rawText = rawText.substring(3);
                     }
 
-                    // --- UPDATED PATTERN: ACCEPTS 1 OR 2 DIGIT DISTRICTS ---
-                    const platePattern = /[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}/;
+                    // --- PATTERN FILTER: 2 Letters + 2 Numbers + 2 Letters + 4 Numbers ---
+                    const platePattern = /([A-Z]{2})([0-9]{1,2})([A-Z]{1,2})([0-9]{4})/;
                     const match = rawText.match(platePattern);
 
                     if(match) {
-                        document.getElementById('vehNo').value = match[0];
+                        // Reconstruct to clean format (e.g., GJ05BK1234)
+                        document.getElementById('vehNo').value = match[1] + match[2] + match[3] + match[4];
                         if(beep) beep.play();
                         closeCam();
                     } else {
+                        // Clean manually if pattern not exact
                         let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
-                        // Also check for IND in cleaned string
                         if (cleaned.startsWith("IND")) cleaned = cleaned.substring(3);
 
                         if(cleaned.length >= 8) {
@@ -247,7 +248,7 @@
                             if(beep) beep.play();
                             closeCam();
                         } else {
-                            alert("Plate not detected clearly. Ensure the plate fills the yellow window.");
+                            alert("Plate not detected clearly. Try again.");
                             video.play();
                         }
                     }

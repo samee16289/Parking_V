@@ -1,15 +1,11 @@
 // --- CONFIGURATION ---
 const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
-const OCR_SPACE_KEY = 'K82387542888957'; // Your OCR.space API Key
+const OCR_SPACE_KEY = 'K82387542888957'; 
 
 let stream = null;
 let flash = false;
 
-// --- AI INITIALIZATION ---
-console.log("SMC Smart AI Scanner: OCR.space Cloud Mode Active");
-
 // --- PARKING LOGIC ---
-
 function updatePrice() {
     const duration = document.getElementById('duration').value;
     let price = 20;
@@ -109,7 +105,6 @@ function printThermalBill(veh, exp, amt) {
 }
 
 // --- PHOTO-BASED CAMERA FUNCTIONS ---
-
 async function openCam() {
     const overlay = document.getElementById('camOverlay');
     overlay.style.display = 'flex';
@@ -143,7 +138,6 @@ async function snap() {
     const ctx = canvas.getContext('2d');
     const beep = document.getElementById('beepSound');
 
-    // --- CROP LOGIC: FOCUS ONLY ON THE YELLOW BOX AREA ---
     const scanWindow = document.querySelector('.scan-window');
     const rect = scanWindow.getBoundingClientRect();
     const videoRect = video.getBoundingClientRect();
@@ -181,29 +175,28 @@ async function snap() {
         const result = await response.json();
 
         if (result.ParsedResults && result.ParsedResults.length > 0) {
+            // Clean up the text: Remove spaces and new lines
             let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
             
-            // 1. SPECIFICALLY REMOVE "IND" if it exists at the start (Blue Tag)
-            if (rawText.startsWith("IND")) {
-                rawText = rawText.substring(3);
-            }
-
-            // 2. Updated Pattern (allows 1 or 2 digit districts like GJ5 or GJ05)
-            const platePattern = /[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}/;
+            // 1. THE MAIN FIX: Regex to find the 2-2-2-4 pattern
+            // This pattern specifically ignores "IND" because IND is 3 letters.
+            const platePattern = /([A-Z]{2})([0-9]{1,2})([A-Z]{1,2})([0-9]{4})/;
             const match = rawText.match(platePattern);
 
             if (match) {
-                document.getElementById('vehNo').value = match[0];
+                // Formatting back to clean state: e.g. GJ05BK9999
+                let finalPlate = match[1] + match[2] + match[3] + match[4];
+                document.getElementById('vehNo').value = finalPlate;
                 if(beep) beep.play();
                 closeCam();
             } else {
-                // FALLBACK: Clean text and remove "IND" if present in fallback
+                // 2. FALLBACK: If standard pattern fails, manually strip "IND"
                 let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
                 if (cleaned.startsWith("IND")) {
                     cleaned = cleaned.substring(3);
                 }
 
-                if(cleaned.length >= 8) {
+                if(cleaned.length >= 7) {
                     document.getElementById('vehNo').value = cleaned.substring(0, 10);
                     if(beep) beep.play();
                     closeCam();
