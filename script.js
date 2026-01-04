@@ -167,28 +167,28 @@ async function snap() {
         const result = await response.json();
 
         if (result.ParsedResults && result.ParsedResults.length > 0) {
-            // Get raw text and remove all spaces/newlines
+            // Remove all spaces and special characters to handle fragmented text
             let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
             
-            // --- SMART FILTER ENGINE ---
-            // Pattern for: GJ05BK9999 or DL3CBA5555
-            const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
+            // --- UPDATED SMART FILTER ENGINE ---
+            // Pattern for standard Indian Plates (e.g., GJ05TU8271)
+            // Expects: 2 Letters + 2 Digits + 1-2 Letters + 4 Digits
+            const platePattern = /[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}/;
             const match = rawText.match(platePattern);
 
             if (match) {
-                // SUCCESS: Picked the official plate format and ignored "IND" or ads
                 document.getElementById('vehNo').value = match[0];
                 const beep = document.getElementById('beepSound');
                 if(beep) beep.play();
                 closeCam();
             } else {
-                // FALLBACK: If pattern fails, take the longest alphanumeric chunk (usually the plate)
+                // FALLBACK: Filter out small text like "IND" by requiring length >= 8
                 let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
-                if(cleaned.length >= 4) {
+                if(cleaned.length >= 8) {
                     document.getElementById('vehNo').value = cleaned.substring(0, 10);
                     closeCam();
                 } else {
-                    alert("Plate not detected. Please clean the camera lens or get closer.");
+                    alert("Plate not recognized. Please focus on the central white area of the plate.");
                     video.play();
                 }
             }

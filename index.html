@@ -209,10 +209,10 @@
                 const result = await response.json();
                 
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
-                    // Remove all spaces and newlines to join fragments like "GJ 05"
+                    // Normalize text: Join fragments and uppercase
                     let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
                     
-                    // Strict Indian Plate Regex (ignores IND and small brand names)
+                    // Strict Indian Plate Pattern: StateCode(2) DistCode(1-2) Letters(1-2) Number(4)
                     const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
                     const match = rawText.match(platePattern);
 
@@ -221,13 +221,14 @@
                         if(beep) beep.play();
                         closeCam();
                     } else {
-                        // Fallback: If no perfect match, find the longest alphanumeric string
+                        // Fallback: Use longest valid alphanumeric chunk, ignoring small labels like "IND"
                         let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
-                        if(cleaned.length >= 4) {
+                        if(cleaned.length >= 8) {
                             document.getElementById('vehNo').value = cleaned.substring(0, 10);
+                            if(beep) beep.play();
                             closeCam();
                         } else {
-                            alert("Plate not clear. Get closer and click again.");
+                            alert("Plate not detected clearly. Ensure the plate fills the yellow window.");
                             video.play();
                         }
                     }
