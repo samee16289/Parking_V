@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SMC Parking - Smart Verify</title>
+    <title>SMC Parking - Gate Verify</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
@@ -39,7 +39,7 @@
         </div>
     </div>
 
-    <div id="sideMenu" class="fixed inset-y-0 left-0 width-64 bg-slate-900 z-50 p-6 shadow-2xl">
+    <div id="sideMenu" class="fixed inset-y-0 left-0 w-64 bg-slate-900 z-50 p-6 shadow-2xl">
         <button onclick="toggleMenu()" class="text-white text-2xl mb-8"><i class="fas fa-times"></i></button>
         <div class="space-y-6">
             <a href="index.html" class="flex items-center gap-4 text-slate-300 font-black uppercase text-sm tracking-widest"><i class="fas fa-plus-circle"></i> Entry Point</a>
@@ -62,6 +62,7 @@
                 </button>
             </div>
         </div>
+
         <div id="results"></div>
     </div>
 
@@ -127,7 +128,6 @@
             const beep = document.getElementById('beepSound');
             const ctx = canvas.getContext('2d');
 
-            // --- CROP LOGIC START ---
             const scanWindow = document.querySelector('.scan-window');
             const rect = scanWindow.getBoundingClientRect();
             const videoRect = video.getBoundingClientRect();
@@ -143,7 +143,6 @@
             canvas.width = cropWidth;
             canvas.height = cropHeight;
             ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-            // --- CROP LOGIC END ---
             
             video.pause(); 
             btn.disabled = true;
@@ -166,7 +165,11 @@
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
                     let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
                     
-                    const platePattern = /[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}/;
+                    // Remove IND prefix if detected
+                    if (rawText.startsWith("IND")) rawText = rawText.substring(3);
+
+                    // Pattern to match Indian Plates (handles 1 or 2 digit district code)
+                    const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
                     const match = rawText.match(platePattern);
 
                     if(match) {
@@ -176,6 +179,8 @@
                         searchVeh(); 
                     } else {
                         let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
+                        if (cleaned.startsWith("IND")) cleaned = cleaned.substring(3);
+                        
                         if(cleaned.length >= 8) {
                             document.getElementById('searchInput').value = cleaned.substring(0, 10);
                             if(beep) beep.play();
@@ -206,6 +211,7 @@
             syncIcon.classList.add('sync-active');
 
             try {
+                // Fetching from Google Sheets
                 const res = await fetch(scriptURL + '?nocache=' + new Date().getTime());
                 allData = await res.json();
                 if(document.getElementById('searchInput').value.length >= 3) {
@@ -236,9 +242,13 @@
             const vehicleRecords = allData.filter(item => item.vehicle.toString().toUpperCase() === val);
             
             if (vehicleRecords.length === 0) {
-                resultsDiv.innerHTML = `<div class="bg-red-50 p-10 rounded-[2.5rem] text-center border-2 border-red-100">
+                resultsDiv.innerHTML = `
+                <div class="bg-red-50 p-10 rounded-[2.5rem] text-center border-2 border-red-100">
+                    <div class="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-exclamation-triangle text-2xl"></i>
+                    </div>
                     <h2 class="text-red-900 font-black text-lg uppercase">NOT FOUND</h2>
-                    <p class="text-red-600/60 text-[10px] font-bold mt-1 uppercase">No entry record found</p>
+                    <p class="text-red-600/60 text-[10px] font-bold mt-1 uppercase">No entry record found in system</p>
                 </div>`;
                 return;
             }
@@ -246,19 +256,23 @@
             const latestEntry = vehicleRecords[vehicleRecords.length - 1];
             const latestEntryTime = new Date(latestEntry.time).getTime();
             
+            // Check Local Storage for Exit Logs to prevent double exits
             const clearedHistory = JSON.parse(localStorage.getItem('smc_exit_logs') || "{}");
             const lastClearedTime = clearedHistory[val] || 0;
 
             if (latestEntryTime > lastClearedTime) {
                 resultsDiv.innerHTML = `
                 <div class="bg-emerald-50 border-2 border-emerald-200 p-8 rounded-[2.5rem] text-center shadow-lg">
-                    <div class="w-20 h-20 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-check text-3xl"></i></div>
+                    <div class="w-20 h-20 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-200">
+                        <i class="fas fa-check text-3xl"></i>
+                    </div>
                     <h2 class="text-emerald-900 font-black text-2xl uppercase italic">VALID ENTRY</h2>
                     <div class="my-5 bg-white p-5 rounded-3xl border border-emerald-100">
                         <p class="text-3xl font-black text-slate-800 tracking-tight">${latestEntry.vehicle}</p>
                         <p class="text-[10px] font-bold text-slate-400 uppercase mt-2 italic">Type: ${latestEntry.type || 'N/A'} | Paid: ₹${latestEntry.amount}</p>
+                        <p class="text-[9px] text-slate-400 mt-1">${new Date(latestEntry.time).toLocaleString()}</p>
                     </div>
-                    <button onclick="confirmExit('${latestEntry.vehicle}', ${latestEntryTime})" class="w-full bg-slate-900 text-white font-black py-5 rounded-2xl uppercase tracking-widest shadow-xl">VERIFY & EXIT</button>
+                    <button onclick="confirmExit('${latestEntry.vehicle}', ${latestEntryTime})" class="w-full bg-slate-900 text-white font-black py-5 rounded-2xl uppercase tracking-widest shadow-xl active:scale-95 transition-transform">VERIFY & EXIT</button>
                 </div>`;
             } else {
                 resultsDiv.innerHTML = `
@@ -266,6 +280,7 @@
                     <i class="fas fa-door-open text-orange-400 text-4xl mb-4"></i>
                     <h2 class="text-orange-900 font-black text-xl uppercase">ALREADY LEFT</h2>
                     <p class="text-orange-600/60 text-[10px] font-bold mt-2 uppercase italic tracking-tighter">This vehicle has already exited the premises.</p>
+                    <button onclick="document.getElementById('searchInput').value=''; searchVeh();" class="mt-6 text-orange-800 font-bold text-xs underline">CLEAR SEARCH</button>
                 </div>`;
             }
         }
@@ -274,12 +289,16 @@
             let clearedHistory = JSON.parse(localStorage.getItem('smc_exit_logs') || "{}");
             clearedHistory[vehNo] = entryTime;
             localStorage.setItem('smc_exit_logs', JSON.stringify(clearedHistory));
+            
+            // Visual feedback
             alert("EXIT GRANTED FOR " + vehNo);
             document.getElementById('searchInput').value = "";
             searchVeh();
         }
 
+        // Initialize
         loadData();
+        // Auto-sync data every 30 seconds
         setInterval(loadData, 30000); 
     </script>
 </body>

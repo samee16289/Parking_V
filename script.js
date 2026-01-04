@@ -148,7 +148,6 @@ async function snap() {
     const rect = scanWindow.getBoundingClientRect();
     const videoRect = video.getBoundingClientRect();
 
-    // Map screen display coordinates to actual video resolution
     const scaleX = video.videoWidth / videoRect.width;
     const scaleY = video.videoHeight / videoRect.height;
 
@@ -157,11 +156,9 @@ async function snap() {
     const cropWidth = rect.width * scaleX;
     const cropHeight = rect.height * scaleY;
 
-    // Set canvas size to the size of the crop area
     canvas.width = cropWidth;
     canvas.height = cropHeight;
 
-    // Extract only the yellow box area from the video feed
     ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
     
     video.pause(); 
@@ -186,8 +183,13 @@ async function snap() {
         if (result.ParsedResults && result.ParsedResults.length > 0) {
             let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
             
-            // Pattern for standard Indian Plates (e.g., GJ05TU8271)
-            const platePattern = /[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}/;
+            // 1. SPECIFICALLY REMOVE "IND" if it exists at the start (Blue Tag)
+            if (rawText.startsWith("IND")) {
+                rawText = rawText.substring(3);
+            }
+
+            // 2. Updated Pattern (allows 1 or 2 digit districts like GJ5 or GJ05)
+            const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
             const match = rawText.match(platePattern);
 
             if (match) {
@@ -195,8 +197,12 @@ async function snap() {
                 if(beep) beep.play();
                 closeCam();
             } else {
-                // FALLBACK: Required length to ignore small text like "IND"
+                // FALLBACK: Clean text and remove "IND" if present in fallback
                 let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
+                if (cleaned.startsWith("IND")) {
+                    cleaned = cleaned.substring(3);
+                }
+
                 if(cleaned.length >= 8) {
                     document.getElementById('vehNo').value = cleaned.substring(0, 10);
                     if(beep) beep.play();

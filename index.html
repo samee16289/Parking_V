@@ -187,7 +187,6 @@
             const beep = document.getElementById('beepSound');
             const ctx = canvas.getContext('2d');
 
-            // --- CROP LOGIC ---
             const scanWindow = document.querySelector('.scan-window');
             const rect = scanWindow.getBoundingClientRect();
             const videoRect = video.getBoundingClientRect();
@@ -224,6 +223,13 @@
                 
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
                     let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
+                    
+                    // --- NEW: REMOVE "IND" FROM BLUE TAG AREA ---
+                    if (rawText.startsWith("IND")) {
+                        rawText = rawText.substring(3);
+                    }
+
+                    // --- UPDATED PATTERN: ACCEPTS 1 OR 2 DIGIT DISTRICTS ---
                     const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
                     const match = rawText.match(platePattern);
 
@@ -233,6 +239,9 @@
                         closeCam();
                     } else {
                         let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
+                        // Also check for IND in cleaned string
+                        if (cleaned.startsWith("IND")) cleaned = cleaned.substring(3);
+
                         if(cleaned.length >= 8) {
                             document.getElementById('vehNo').value = cleaned.substring(0, 10);
                             if(beep) beep.play();
