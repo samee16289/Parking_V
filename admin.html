@@ -131,10 +131,9 @@
             canvas.getContext('2d').drawImage(video, 0, 0);
             
             video.pause(); 
-            
             btn.disabled = true;
             status.classList.remove('hidden');
-            statusText.innerText = "Consulting Cloud AI...";
+            statusText.innerText = "AI Filtering...";
 
             const base64Image = canvas.toDataURL('image/jpeg', 0.8);
             const formData = new FormData();
@@ -150,8 +149,12 @@
                 const result = await response.json();
                 
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
-                    let rawText = result.ParsedResults[0].ParsedText.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-                    const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{10}/) || rawText.match(/[A-Z0-9]{4,}/);
+                    // Remove all spaces and newlines
+                    let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
+                    
+                    // Strict Indian Plate Regex Pattern
+                    const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
+                    const match = rawText.match(platePattern);
 
                     if(match) {
                         document.getElementById('searchInput').value = match[0];
@@ -159,15 +162,24 @@
                         closeCam();
                         searchVeh(); 
                     } else {
-                        alert("Plate not detected. Captured: " + rawText);
-                        video.play();
+                        // Fallback: take the longest alphanumeric string if no pattern match
+                        let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
+                        if(cleaned.length >= 4) {
+                            document.getElementById('searchInput').value = cleaned.substring(0, 10);
+                            if(beep) beep.play();
+                            closeCam();
+                            searchVeh();
+                        } else {
+                            alert("Plate not clear. Try again.");
+                            video.play();
+                        }
                     }
                 } else {
-                    alert("No text detected. Try again.");
+                    alert("No text detected.");
                     video.play();
                 }
             } catch (err) {
-                alert("Cloud AI Error. Check Internet.");
+                alert("Cloud AI Error.");
                 video.play();
             } finally {
                 btn.disabled = false;

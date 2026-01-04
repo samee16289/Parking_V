@@ -191,10 +191,9 @@
             canvas.getContext('2d').drawImage(video, 0, 0);
 
             video.pause();
-
             btn.disabled = true;
             status.classList.remove('hidden');
-            statusText.innerText = "Consulting Cloud AI...";
+            statusText.innerText = "AI Filtering...";
 
             const base64Image = canvas.toDataURL('image/jpeg', 0.8);
             const formData = new FormData();
@@ -210,24 +209,34 @@
                 const result = await response.json();
                 
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
-                    let rawText = result.ParsedResults[0].ParsedText.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-                    const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{4,10}/);
-                    let cleanPlate = match ? match[0] : "";
+                    // Remove all spaces and newlines to join fragments like "GJ 05"
+                    let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
+                    
+                    // Strict Indian Plate Regex (ignores IND and small brand names)
+                    const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
+                    const match = rawText.match(platePattern);
 
-                    if(cleanPlate.length >= 4) {
-                        document.getElementById('vehNo').value = cleanPlate;
+                    if(match) {
+                        document.getElementById('vehNo').value = match[0];
                         if(beep) beep.play();
                         closeCam();
                     } else {
-                        alert("Not clear. Captured: " + rawText + ". Try again.");
-                        video.play();
+                        // Fallback: If no perfect match, find the longest alphanumeric string
+                        let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
+                        if(cleaned.length >= 4) {
+                            document.getElementById('vehNo').value = cleaned.substring(0, 10);
+                            closeCam();
+                        } else {
+                            alert("Plate not clear. Get closer and click again.");
+                            video.play();
+                        }
                     }
                 } else {
-                    alert("No text detected. Try again.");
+                    alert("No text detected.");
                     video.play();
                 }
             } catch (err) {
-                alert("Cloud Connection Error.");
+                alert("Connection Error.");
                 video.play();
             } finally {
                 btn.disabled = false;

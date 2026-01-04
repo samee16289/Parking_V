@@ -142,28 +142,24 @@ async function snap() {
     const btn = document.getElementById('snapBtn');
     const ctx = canvas.getContext('2d');
 
-    // 1. CAPTURE: Take high-quality frame
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
     
-    // 2. FREEZE: Stop live feed to save processing power
     video.pause(); 
     
-    btn.innerText = "SENDING TO CLOUD...";
+    btn.innerText = "AI FILTERING...";
     btn.disabled = true;
 
-    // 3. PREPARE: Convert image for API
     const base64Image = canvas.toDataURL('image/jpeg', 0.8);
 
     const formData = new FormData();
     formData.append("base64Image", base64Image);
     formData.append("apikey", OCR_SPACE_KEY);
     formData.append("language", "eng");
-    formData.append("OCREngine", "2"); // Optimized for numbers/plates
+    formData.append("OCREngine", "2"); 
 
     try {
-        // 4. API CALL
         const response = await fetch("https://api.ocr.space/parse/image", {
             method: 'POST',
             body: formData
@@ -171,22 +167,30 @@ async function snap() {
         const result = await response.json();
 
         if (result.ParsedResults && result.ParsedResults.length > 0) {
-            // Clean text: keep only Alphanumeric
-            let rawText = result.ParsedResults[0].ParsedText.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+            // Get raw text and remove all spaces/newlines
+            let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
             
-            // Filter for standard plate pattern (e.g., GJ05AY7151)
-            const match = rawText.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/) || rawText.match(/[A-Z0-9]{10}/);
-            
-            let cleanPlate = match ? match[0] : (rawText.length >= 4 ? rawText.substring(0, 10) : "");
+            // --- SMART FILTER ENGINE ---
+            // Pattern for: GJ05BK9999 or DL3CBA5555
+            const platePattern = /[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/;
+            const match = rawText.match(platePattern);
 
-            if(cleanPlate.length >= 4) {
-                document.getElementById('vehNo').value = cleanPlate;
+            if (match) {
+                // SUCCESS: Picked the official plate format and ignored "IND" or ads
+                document.getElementById('vehNo').value = match[0];
                 const beep = document.getElementById('beepSound');
                 if(beep) beep.play();
                 closeCam();
             } else {
-                alert("Reading Failed. Captured: " + rawText + ". Please try again.");
-                video.play();
+                // FALLBACK: If pattern fails, take the longest alphanumeric chunk (usually the plate)
+                let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
+                if(cleaned.length >= 4) {
+                    document.getElementById('vehNo').value = cleaned.substring(0, 10);
+                    closeCam();
+                } else {
+                    alert("Plate not detected. Please clean the camera lens or get closer.");
+                    video.play();
+                }
             }
         } else {
             alert("No text detected. Ensure lighting is good.");
