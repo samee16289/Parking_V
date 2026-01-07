@@ -1,6 +1,6 @@
 // --- CONFIGURATION ---
 const scriptURL = 'https://script.google.com/macros/s/AKfycbz6kvy4Wn8dmmXVbcx2gg-PI8D6a30l7x5Z7X6Xn4FwrfycrJ3A403_wm1batb39_8N/exec';
-const OCR_SPACE_KEY = 'K82387542888957'; 
+const GEMINI_API_KEY = 'AIzaSyCAy6nPEJYUIpZMQlr71RRh2p6I8Jd4QVg'; 
 
 let stream = null;
 let flash = false;
@@ -110,7 +110,7 @@ async function openCam() {
     overlay.style.display = 'flex';
     try {
         stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
+            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         document.getElementById('video').srcObject = stream;
     } catch (err) { 
@@ -145,73 +145,49 @@ async function snap() {
     const scaleX = video.videoWidth / videoRect.width;
     const scaleY = video.videoHeight / videoRect.height;
 
-    const cropX = (rect.left - videoRect.left) * scaleX;
-    const cropY = (rect.top - videoRect.top) * scaleY;
-    const cropWidth = rect.width * scaleX;
-    const cropHeight = rect.height * scaleY;
+    // Crop precisely to the yellow box
+    canvas.width = rect.width * scaleX;
+    canvas.height = rect.height * scaleY;
 
-    canvas.width = cropWidth;
-    canvas.height = cropHeight;
-
-    ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+    ctx.drawImage(video, (rect.left - videoRect.left) * scaleX, (rect.top - videoRect.top) * scaleY, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
     
     video.pause(); 
-    btn.innerText = "AI FILTERING...";
+    btn.innerText = "GEMINI AI SCANNING...";
     btn.disabled = true;
 
-    const base64Image = canvas.toDataURL('image/jpeg', 0.8);
+    // Convert image to base64 for Gemini API
+    const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
 
-    const formData = new FormData();
-    formData.append("base64Image", base64Image);
-    formData.append("apikey", OCR_SPACE_KEY);
-    formData.append("language", "eng");
-    formData.append("OCREngine", "2"); 
+    const payload = {
+        contents: [{
+            parts: [
+                { text: "Extract the vehicle registration number from this Indian number plate. Return ONLY the alphanumeric code (e.g., GJ05BK1234). If the plate has two rows, merge them into one line. Ignore 'IND' and special characters. Return 'NONE' if no plate is found." },
+                { inline_data: { mime_type: "image/jpeg", data: base64Image } }
+            ]
+        }]
+    };
 
     try {
-        const response = await fetch("https://api.ocr.space/parse/image", {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             method: 'POST',
-            body: formData
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
+
         const result = await response.json();
+        const plateText = result.candidates[0].content.parts[0].text.replace(/[^A-Z0-9]/gi, "").toUpperCase();
 
-        if (result.ParsedResults && result.ParsedResults.length > 0) {
-            // FIX: Merge all detected text fragments to handle 2-row plates (scooters/bikes)
-            let combinedText = result.ParsedResults.map(res => res.ParsedText).join(" ");
-            let rawText = combinedText.replace(/\s/g, "").toUpperCase();
-            
-            // 1. THE MAIN FIX: Regex to find the 2-2-2-4 pattern
-            // Updated to handle 1 or 2 letter series (e.g., T or BK)
-            const platePattern = /([A-Z]{2})([0-9]{1,2})([A-Z]{1,2})([0-9]{4})/;
-            const match = rawText.match(platePattern);
-
-            if (match) {
-                // Reconstruct to clean state: e.g. GJ05BK9999 or GJ05T2720
-                let finalPlate = match[1] + match[2] + match[3] + match[4];
-                document.getElementById('vehNo').value = finalPlate;
-                if(beep) beep.play();
-                closeCam();
-            } else {
-                // 2. FALLBACK: Strip junk characters and manually strip "IND"
-                let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
-                if (cleaned.startsWith("IND")) {
-                    cleaned = cleaned.substring(3);
-                }
-
-                if(cleaned.length >= 7) {
-                    document.getElementById('vehNo').value = cleaned.substring(0, 10);
-                    if(beep) beep.play();
-                    closeCam();
-                } else {
-                    alert("Plate not recognized. Align it inside the YELLOW BOX.");
-                    video.play();
-                }
-            }
+        if (plateText.length >= 4 && plateText !== "NONE") {
+            document.getElementById('vehNo').value = plateText;
+            if(beep) beep.play();
+            closeCam();
         } else {
-            alert("No text detected. Ensure lighting is good.");
+            alert("Plate not recognized. Align it inside the YELLOW BOX and try again.");
             video.play();
         }
     } catch (err) {
-        alert("Cloud AI Error. Check your internet connection.");
+        console.error("AI Error:", err);
+        alert("AI Scan failed. Check your internet connection.");
         video.play();
     } finally {
         btn.innerText = "SCAN NOW";
