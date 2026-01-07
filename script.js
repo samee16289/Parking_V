@@ -175,22 +175,23 @@ async function snap() {
         const result = await response.json();
 
         if (result.ParsedResults && result.ParsedResults.length > 0) {
-            // Clean up the text: Remove spaces and new lines
-            let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
+            // FIX: Merge all detected text fragments to handle 2-row plates (scooters/bikes)
+            let combinedText = result.ParsedResults.map(res => res.ParsedText).join(" ");
+            let rawText = combinedText.replace(/\s/g, "").toUpperCase();
             
             // 1. THE MAIN FIX: Regex to find the 2-2-2-4 pattern
-            // This pattern specifically ignores "IND" because IND is 3 letters.
+            // Updated to handle 1 or 2 letter series (e.g., T or BK)
             const platePattern = /([A-Z]{2})([0-9]{1,2})([A-Z]{1,2})([0-9]{4})/;
             const match = rawText.match(platePattern);
 
             if (match) {
-                // Formatting back to clean state: e.g. GJ05BK9999
+                // Reconstruct to clean state: e.g. GJ05BK9999 or GJ05T2720
                 let finalPlate = match[1] + match[2] + match[3] + match[4];
                 document.getElementById('vehNo').value = finalPlate;
                 if(beep) beep.play();
                 closeCam();
             } else {
-                // 2. FALLBACK: If standard pattern fails, manually strip "IND"
+                // 2. FALLBACK: Strip junk characters and manually strip "IND"
                 let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
                 if (cleaned.startsWith("IND")) {
                     cleaned = cleaned.substring(3);

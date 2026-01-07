@@ -163,28 +163,27 @@
                 const result = await response.json();
                 
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
-                    let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
+                    // UPDATED: Merge multiple rows (important for bike/scooter plates)
+                    let combinedText = result.ParsedResults.map(res => res.ParsedText).join(" ");
+                    let rawText = combinedText.replace(/\s/g, "").toUpperCase();
                     
-                    // --- THE FIX: Remove IND prefix if detected ---
                     if (rawText.startsWith("IND")) rawText = rawText.substring(3);
 
-                    // --- THE PATTERN: Match 2L-2N-2L-4N structure ---
+                    // PATTERN: 2 Letters + 2 Numbers + 1-2 Letters + 4 Numbers
                     const platePattern = /([A-Z]{2})([0-9]{1,2})([A-Z]{1,2})([0-9]{4})/;
                     const match = rawText.match(platePattern);
 
                     if(match) {
-                        // Reconstruct to clean format (e.g., GJ05BK1234)
                         let cleanPlate = match[1] + match[2] + match[3] + match[4];
                         document.getElementById('searchInput').value = cleanPlate;
                         if(beep) beep.play(); 
                         closeCam();
                         searchVeh(); 
                     } else {
-                        // Fallback cleaning
                         let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
                         if (cleaned.startsWith("IND")) cleaned = cleaned.substring(3);
                         
-                        if(cleaned.length >= 8) {
+                        if(cleaned.length >= 7) {
                             document.getElementById('searchInput').value = cleaned.substring(0, 10);
                             if(beep) beep.play();
                             closeCam();

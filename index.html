@@ -222,28 +222,28 @@
                 const result = await response.json();
                 
                 if (result.ParsedResults && result.ParsedResults.length > 0) {
-                    let rawText = result.ParsedResults[0].ParsedText.replace(/\s/g, "").toUpperCase();
+                    // UPDATED: Merge all text lines into one string to handle 2-row plates
+                    let combinedText = result.ParsedResults.map(res => res.ParsedText).join(" ");
+                    let rawText = combinedText.replace(/\s/g, "").toUpperCase();
                     
                     // --- REMOVE "IND" IF DETECTED ---
                     if (rawText.startsWith("IND")) {
                         rawText = rawText.substring(3);
                     }
 
-                    // --- PATTERN FILTER: 2 Letters + 2 Numbers + 2 Letters + 4 Numbers ---
+                    // --- PATTERN FILTER: State(2) + Dist(1-2) + Series(1-2) + Num(4) ---
                     const platePattern = /([A-Z]{2})([0-9]{1,2})([A-Z]{1,2})([0-9]{4})/;
                     const match = rawText.match(platePattern);
 
                     if(match) {
-                        // Reconstruct to clean format (e.g., GJ05BK1234)
                         document.getElementById('vehNo').value = match[1] + match[2] + match[3] + match[4];
                         if(beep) beep.play();
                         closeCam();
                     } else {
-                        // Clean manually if pattern not exact
                         let cleaned = rawText.replace(/[^A-Z0-9]/gi, "");
                         if (cleaned.startsWith("IND")) cleaned = cleaned.substring(3);
 
-                        if(cleaned.length >= 8) {
+                        if(cleaned.length >= 7) {
                             document.getElementById('vehNo').value = cleaned.substring(0, 10);
                             if(beep) beep.play();
                             closeCam();
